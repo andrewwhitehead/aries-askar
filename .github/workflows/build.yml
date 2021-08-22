@@ -19,7 +19,7 @@ jobs:
     name: Run Checks
     strategy:
       matrix:
-        os: [macos-latest, windows-latest, ubuntu-latest]
+        os: [macos-11, windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -149,10 +149,10 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: macos-latest
+          - os: macos-11
             lib: libaries_askar.dylib
-            # target: apple-darwin
-            toolchain: stable #  beta required for aarch64-apple-darwin target
+            target: apple-darwin # creates a universal library
+            toolchain: beta # beta required for aarch64-apple-darwin target
           - os: windows-latest
             lib: aries_askar.dll
             toolchain: stable
@@ -192,13 +192,13 @@ jobs:
 
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-11, windows-latest]
         python-version: [3.6]
         include:
           - os: ubuntu-latest
             plat-name: manylinux2014_x86_64
-          - os: macos-latest
-            plat-name: macosx_10_9_x86_64 # macosx_10_9_universal2
+          - os: macos-11
+            plat-name: macosx_10_9_universal2 # macosx_10_9_x86_64
           - os: windows-latest
             plat-name: win_amd64
 
