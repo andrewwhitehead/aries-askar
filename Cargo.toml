@@ -30,8 +30,8 @@ any = []
 ffi = ["any", "ffi-support", "logger", "option-lock"]
 jemalloc = ["jemallocator"]
 logger = ["env_logger", "log"]
-postgres = ["sqlx", "sqlx-core", "sqlx/postgres", "sqlx/tls"]
-sqlite = ["num_cpus", "sqlx", "sqlx-core", "sqlx/sqlite"]
+postgres = ["sqlx", "sqlx/postgres", "sqlx/tls"]
+sqlite = ["num_cpus", "sqlx", "sqlx/sqlite"]
 pg_test = ["postgres"]
 
 [dev-dependencies]
@@ -72,15 +72,16 @@ path = "./askar-crypto"
 features = ["all_keys", "any_key", "argon2", "crypto_box", "std"]
 
 [dependencies.sqlx]
-version = "=0.5.5"
+git = "https://github.com/andrewwhitehead/sqlx"
+branch = "fix/sqlite-conn-close"
 default-features = false
 features = ["chrono", "runtime-tokio-rustls"]
 optional = true
 
-[dependencies.sqlx-core]
-version = "=0.5.5"
-default-features = false
-optional = true
+#[dependencies.sqlx-core]
+#version = "=0.5.5"
+#default-features = false
+#optional = true
 
 [profile.release]
 lto = true
