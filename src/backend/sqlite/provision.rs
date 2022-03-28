@@ -58,6 +58,7 @@ impl SqliteStoreOptions {
             conn_opts.log_statements(log::LevelFilter::Debug);
             conn_opts.log_slow_statements(log::LevelFilter::Debug, Default::default());
         }
+        error!("connect options: {:?}", &conn_opts);
         SqlitePoolOptions::default()
             // maintains at least 1 connection.
             // for an in-memory database this is required to avoid dropping the database,
