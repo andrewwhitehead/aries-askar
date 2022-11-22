@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-11, windows-latest]
+        os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -138,69 +138,18 @@ jobs:
           name: library-${{ runner.os }}
           path: target/release/${{ matrix.lib }}
 
-  build-native:
-    name: Build (native)
-    needs: [check]
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-11
-            lib: libaries_askar.dylib
-            target: apple-darwin # creates a universal library
-            toolchain: nightly-2022-01-13 #  beta required for aarch64-apple-darwin target
-          - os: windows-latest
-            lib: aries_askar.dll
-            toolchain: 1.58.0
-
-    runs-on: ${{ matrix.os }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v2
-
-      - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: ${{ matrix.toolchain }}
-          override: true
-
-      - name: Cache cargo resources
-        uses: Swatinem/rust-cache@v1
-        with:
-          sharedKey: check
-
-      - name: Build library
-        env:
-          BUILD_TARGET: ${{ matrix.target }}
-          BUILD_TOOLCHAIN: ${{ matrix.toolchain }}
-          # LIBSQLITE3_FLAGS: SQLITE_DEBUG SQLITE_MEMDEBUG
-        run: sh ./build.sh
-
-      - name: Upload library artifacts
-        uses: actions/upload-artifact@v2
-        with:
-          name: library-${{ runner.os }}
-          path: target/release/${{ matrix.lib }}
-
   build-py:
     name: Build Python packages
-    needs: [build-manylinux, build-native]
+    needs: [build-manylinux]
 
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-11, windows-latest]
+        os: [ubuntu-latest]
         python-version: [3.7]
         include:
           - os: ubuntu-latest
             plat-name: manylinux2014_x86_64
-          - os: macos-11
-            plat-name: macosx_10_9_universal2 # macosx_10_9_x86_64
-          - os: windows-latest
-            plat-name: win_amd64
 
     runs-on: ${{ matrix.os }}
 
@@ -215,8 +164,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install setuptools wheel twine auditwheel
+          sudo python -m pip install --upgrade pip
+          sudo pip install setuptools wheel twine auditwheel
 
       - name: Fetch library artifacts
         uses: actions/download-artifact@v2
@@ -235,7 +184,7 @@ jobs:
       - name: Build package
         shell: sh
         run: |
-          python setup.py bdist_wheel --python-tag=py3 --plat-name=${{ matrix.plat-name }}
+          sudo python setup.py bdist_wheel --python-tag=py3 --plat-name=${{ matrix.plat-name }}
         working-directory: wrappers/python
 
       - if: "runner.os == 'Linux'"
@@ -245,20 +194,33 @@ jobs:
       - name: Test package
         shell: sh
         run: |
-          pip install pytest pytest-asyncio dist/*
+          sudo mkdir /tmp/cores
+          ulimit -c unlimited
+          echo /tmp/cores/core | sudo tee /proc/sys/kernel/core_pattern
+          sudo pip install pytest pytest-asyncio dist/*
           echo "-- Test SQLite in-memory --"
-          python -m pytest --log-cli-level=WARNING -k "not contention"
+          sudo python -m pytest --log-cli-level=WARNING -k "not contention"
           echo "-- Test SQLite file DB --"
-          TEST_STORE_URI=sqlite://test.db python -m pytest --log-cli-level=WARNING -k "not contention"
+          TEST_STORE_URI=sqlite://test.db sudo python -m pytest --log-cli-level=WARNING -k "not contention"
           if [ -n "$POSTGRES_URL" ]; then
             echo "-- Test Postgres DB --"
-            TEST_STORE_URI="$POSTGRES_URL" python -m pytest --log-cli-level=WARNING -k "not contention"
+            TEST_STORE_URI="$POSTGRES_URL" sudo python -m pytest --log-cli-level=WARNING -k "not contention"
           fi
         working-directory: wrappers/python
         env:
           no_proxy: "*" # python issue 30385
           RUST_BACKTRACE: full
           # RUST_LOG: debug
+
+      - if: always()
+        shell: sh
+        run: sudo chmod -R +rwx /tmp/cores
+
+      - if: always()
+        uses: actions/upload-artifact@master
+        with:
+          name: crashes
+          path: /tmp/cores
 
       - name: Upload python package
         uses: actions/upload-artifact@v2
