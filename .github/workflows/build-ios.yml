@@ -15,17 +15,15 @@ jobs:
     runs-on: macos-latest
     strategy:
       matrix:
-        architecture: [aarch64-apple-ios, aarch64-apple-ios-sim, x86_64-apple-ios]
+        architecture:
+          [aarch64-apple-ios, aarch64-apple-ios-sim, x86_64-apple-ios]
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v3
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@e
         with:
-          toolchain: stable
-          target: ${{ matrix.architecture }}
-      - uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --target ${{matrix.architecture}} --release
+          targets: ${{ matrix.architecture }}
+      - run: cargo build --target ${{matrix.architecture}} --release
       - name: Save static library
         uses: actions/upload-artifact@v3
         with:
@@ -37,7 +35,7 @@ jobs:
     runs-on: macos-latest
     needs: build_ios
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Fetch static libraries
         uses: actions/download-artifact@v3
       - run: >
@@ -54,7 +52,7 @@ jobs:
         with:
           name: ${{ env.LIB_NAME }}.xcframework
           path: ${{ env.LIB_NAME }}.xcframework
-      - uses: geekyeggo/delete-artifact@v1
+      - uses: geekyeggo/delete-artifact@v2
         with:
           name: |
             aarch64-apple-ios

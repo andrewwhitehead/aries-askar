@@ -13,16 +13,20 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        architecture: [aarch64-linux-android, armv7-linux-androideabi, i686-linux-android, x86_64-linux-android]
+        architecture:
+          [
+            aarch64-linux-android,
+            armv7-linux-androideabi,
+            i686-linux-android,
+            x86_64-linux-android,
+          ]
     steps:
       - uses: actions/checkout@v3
-      - uses: actions-rs/cargo@v1
-        with:
-          use-cross: true
-          command: build
-          args: --target ${{matrix.architecture}} --release
+      - run: |
+          cargo install --bins --git https://github.com/rust-embedded/cross --tag v0.2.4 cross
+          cross build --target ${{matrix.architecture}} --release
       - name: Save library
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: ${{ matrix.architecture}}
           path: target/${{ matrix.architecture }}/release/lib${{ env.LIB_NAME }}.so
@@ -40,11 +44,11 @@ jobs:
           sudo mv i686-linux-android      ./libs/x86
           sudo mv x86_64-linux-android    ./libs/x86_64
       - name: Save Android library
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: libs
           path: ./libs
-      - uses: geekyeggo/delete-artifact@v1
+      - uses: geekyeggo/delete-artifact@v2
         with:
           name: |
             aarch64-linux-android

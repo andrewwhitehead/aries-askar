@@ -31,39 +31,28 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@master
         with:
-          profile: minimal
-          toolchain: 1.56
-          override: true
+          toolchain: "1.58.0"
           components: clippy, rustfmt
 
       - name: Cache cargo resources
-        uses: Swatinem/rust-cache@v1
+        uses: Swatinem/rust-cache@v2
         with:
           sharedKey: check
           cache-on-failure: true
 
       - name: Cargo fmt
-        uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
+        run: cargo fmt --all -- --check
 
       - name: Cargo check
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: --workspace
+        run: cargo check --workspace
 
       - name: Debug build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --all-targets
+        run: cargo build --all-targets
 
       - if: "runner.os == 'Linux'"
         name: Start postgres (Linux)
@@ -75,25 +64,16 @@ jobs:
           echo "TEST_FEATURES=pg_test" >> $GITHUB_ENV
 
       - name: Run tests
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --workspace --features "${{ env.TEST_FEATURES }}" -- --nocapture --test-threads 1 --skip contention
+        run: cargo test --workspace --features "${{ env.TEST_FEATURES || 'default' }}" -- --nocapture --test-threads 1 --skip contention
         env:
           RUST_BACKTRACE: full
           # RUST_LOG: debug
 
       - name: Test askar-crypto no_std
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --manifest-path ./askar-crypto/Cargo.toml --no-default-features
+        run: cargo test --manifest-path ./askar-crypto/Cargo.toml --no-default-features
 
       - name: Test askar-bbs no_std
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --manifest-path ./askar-bbs/Cargo.toml --no-default-features
+        run: cargo test --manifest-path ./askar-bbs/Cargo.toml --no-default-features
 
   build-release:
     name: Build Library
@@ -127,17 +107,15 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@master
         with:
-          profile: minimal
-          toolchain: 1.56
-          override: true
+          toolchain: "1.58.0"
 
       - name: Cache cargo resources
-        uses: Swatinem/rust-cache@v1
+        uses: Swatinem/rust-cache@v2
         with:
           sharedKey: check
 
@@ -152,11 +130,9 @@ jobs:
 
       - if: matrix.use_cross
         name: Build library (cross)
-        uses: actions-rs/cargo@v1
-        with:
-          use-cross: true
-          command: build
-          args: --lib --release --target ${{ matrix.target }}
+        run: |
+          cargo install --bins --git https://github.com/rust-embedded/cross --tag v0.2.4 cross
+          cross build --lib --release --target ${{ matrix.target }}
 
       - name: Upload library artifacts
         uses: actions/upload-artifact@v3
