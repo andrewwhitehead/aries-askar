@@ -42,7 +42,7 @@ jobs:
       - name: Cache cargo resources
         uses: Swatinem/rust-cache@v2
         with:
-          sharedKey: check
+          shared-key: check
           cache-on-failure: true
 
       - name: Cargo fmt
@@ -117,7 +117,7 @@ jobs:
       - name: Cache cargo resources
         uses: Swatinem/rust-cache@v2
         with:
-          sharedKey: check
+          shared-key: check
 
       - if: "!matrix.use_cross"
         name: Build library
