@@ -44,7 +44,7 @@ async-stream = "0.3"
 bs58 = "0.4"
 chrono = "0.4"
 digest = "0.10"
-env_logger = { version = "0.10", optional = true }
+env_logger = { version = "0.9", optional = true }
 ffi-support = { version = "0.4", optional = true }
 futures-lite = "1.11"
 hex = "0.4"
