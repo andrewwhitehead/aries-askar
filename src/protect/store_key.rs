@@ -55,6 +55,7 @@ impl StoreKey {
         Ok(Self(Some(StoreKeyType::random()?)))
     }
 
+    #[allow(unused)]
     pub fn is_empty(&self) -> bool {
         self.0.is_none()
     }

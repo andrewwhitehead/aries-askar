@@ -1,7 +1,7 @@
 use alloc::{boxed::Box, string::String, vec::Vec};
 use core::{
     fmt::{self, Debug, Formatter},
-    mem,
+    hash, mem,
     ops::{Deref, Range},
 };
 
@@ -13,7 +13,7 @@ use super::{string::MaybeStr, HexRepr, ResizeBuffer, WriteBuffer};
 use crate::error::Error;
 
 /// A heap-allocated, zeroized byte buffer
-#[derive(Clone, Default, Hash, Zeroize)]
+#[derive(Clone, Default, Zeroize)]
 pub struct SecretBytes(Vec<u8>);
 
 impl SecretBytes {
@@ -57,6 +57,12 @@ impl SecretBytes {
     #[inline]
     pub fn len(&self) -> usize {
         self.0.len()
+    }
+
+    /// Determine if the buffer has zero length
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 
     /// Try to convert the buffer value to a string reference
@@ -205,6 +211,12 @@ impl PartialEq for SecretBytes {
 }
 impl Eq for SecretBytes {}
 
+impl hash::Hash for SecretBytes {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
+}
+
 impl From<&[u8]> for SecretBytes {
     fn from(inner: &[u8]) -> Self {
         Self(inner.to_vec())
@@ -256,7 +268,7 @@ impl WriteBuffer for SecretBytes {
 
 impl ResizeBuffer for SecretBytes {
     fn buffer_insert(&mut self, pos: usize, data: &[u8]) -> Result<(), Error> {
-        self.splice(pos..pos, data.into_iter().cloned())
+        self.splice(pos..pos, data.iter().cloned())
     }
 
     fn buffer_remove(&mut self, range: Range<usize>) -> Result<(), Error> {

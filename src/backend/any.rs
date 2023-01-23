@@ -86,13 +86,13 @@ impl Backend for AnyBackend {
             #[cfg(feature = "postgres")]
             Self::Postgres(store) => {
                 let session = store.session(profile, transaction)?;
-                Ok(AnyQueryBackend::PostgresSession(session))
+                Ok(AnyQueryBackend::PostgresSession(Box::new(session)))
             }
 
             #[cfg(feature = "sqlite")]
             Self::Sqlite(store) => {
                 let session = store.session(profile, transaction)?;
-                Ok(AnyQueryBackend::SqliteSession(session))
+                Ok(AnyQueryBackend::SqliteSession(Box::new(session)))
             }
 
             _ => unreachable!(),
@@ -117,11 +117,11 @@ impl Backend for AnyBackend {
 pub enum AnyQueryBackend {
     /// A PostgreSQL store session
     #[cfg(feature = "postgres")]
-    PostgresSession(<PostgresStore as Backend>::Session),
+    PostgresSession(Box<<PostgresStore as Backend>::Session>),
 
     /// A Sqlite store session
     #[cfg(feature = "sqlite")]
-    SqliteSession(<SqliteStore as Backend>::Session),
+    SqliteSession(Box<<SqliteStore as Backend>::Session>),
 
     #[allow(unused)]
     #[doc(hidden)]
