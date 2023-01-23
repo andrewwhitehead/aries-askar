@@ -78,8 +78,9 @@ features = ["chrono", "runtime-tokio-rustls"]
 optional = true
 
 [profile.release]
-lto = true
 codegen-units = 1
+lto = true
+panic = "abort"
 
 [[test]]
 name = "backends"
