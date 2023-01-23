@@ -1,6 +1,4 @@
 use alloc::{boxed::Box, sync::Arc};
-#[cfg(feature = "ed25519")]
-use core::convert::TryFrom;
 use core::{
     any::{Any, TypeId},
     fmt::Debug,

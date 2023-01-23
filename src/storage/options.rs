@@ -145,7 +145,6 @@ impl<'a> IntoOptions<'a> for &'a str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::iter::FromIterator;
 
     #[test]
     fn options_basic() {

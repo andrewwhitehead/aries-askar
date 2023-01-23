@@ -1,4 +1,4 @@
-use std::{convert::TryFrom, mem, ptr};
+use std::{mem, ptr};
 
 use crate::{crypto::buffer::SecretBytes, kms::Encrypted};
 

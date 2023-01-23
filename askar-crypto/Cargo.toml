@@ -2,13 +2,14 @@
 name = "askar-crypto"
 version = "0.2.5"
 authors = ["Hyperledger Aries Contributors <aries@lists.hyperledger.org>"]
-edition = "2018"
+edition = "2021"
 description = "Hyperledger Aries Askar cryptography"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/hyperledger/aries-askar/"
 categories = ["cryptography", "no-std"]
 keywords = ["hyperledger", "aries", "didcomm", "ssi"]
+rust-version = "1.58"
 
 [package.metadata.docs.rs]
 features = ["argon2", "std"]
