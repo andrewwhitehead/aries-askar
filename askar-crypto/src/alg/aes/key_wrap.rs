@@ -1,6 +1,6 @@
 //! AES key wrap
 
-use core::{convert::TryInto, marker::PhantomData};
+use core::marker::PhantomData;
 
 use aes_core::{Aes128, Aes256};
 use block_modes::cipher::{BlockCipher, BlockDecrypt, BlockEncrypt, NewBlockCipher};

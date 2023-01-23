@@ -1,7 +1,6 @@
 //! BLS12-381 key support
 
 use core::{
-    convert::TryInto,
     fmt::{self, Debug, Formatter},
     ops::Add,
 };
