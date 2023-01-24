@@ -50,7 +50,7 @@ impl CustomLogger {
     }
 
     fn disable(&self) {
-        self.disabled.store(false, Ordering::Release);
+        self.disabled.store(true, Ordering::Release);
     }
 }
 
