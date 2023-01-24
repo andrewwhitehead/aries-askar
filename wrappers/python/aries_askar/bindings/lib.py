@@ -210,8 +210,13 @@ class LibLoad:
         if result:
             raise self.get_current_error(True)
 
-    def invoke_async(self, name: str, argtypes, *args, return_type=None):
+    def invoke_async(
+        self, name: str, argtypes, *args, return_type=None
+    ) -> asyncio.Future:
         """Perform an asynchronous library function call."""
+        if sys.is_finalizing():
+            LOGGER.error("async call in shutdown: %s!", name)
+            return
         method = self.method(name, (*argtypes, c_void_p, c_int64), restype=c_int64)
         loop = asyncio.get_event_loop()
         fut = loop.create_future()
@@ -301,6 +306,7 @@ class LibLoad:
 
     def _cleanup(self):
         """Destructor."""
+        LOGGER.error("Lib cleanup: %s callbacks", len(self._callbacks))
         if self._callbacks:
 
             def _wait_callbacks(cb):
@@ -315,6 +321,9 @@ class LibLoad:
                     "%s: Timed out waiting for callbacks to complete",
                     self._lib_name,
                 )
+
+        LOGGER.error("Call terminate")
+        self.method("askar_terminate", None, restype=None)()
 
 
 class Lib:

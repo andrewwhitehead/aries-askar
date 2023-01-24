@@ -39,6 +39,7 @@ pg_test = ["postgres"]
 hex-literal = "0.3"
 
 [dependencies]
+arc-swap = "1.6"
 async-lock = "2.5"
 async-stream = "0.3"
 bs58 = "0.4"
@@ -80,7 +81,7 @@ optional = true
 [profile.release]
 codegen-units = 1
 lto = true
-panic = "abort"
+# panic = "abort"
 
 [[test]]
 name = "backends"

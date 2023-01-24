@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 use std::os::raw::c_char;
+use std::time::Duration;
 
 use ffi_support::rust_string_to_c;
 
@@ -58,6 +59,12 @@ impl<T, F: Fn(Result<T, Error>)> Drop for EnsureCallback<T, F> {
             (self.f)(Err(err_msg!(Unexpected)));
         }
     }
+}
+
+#[no_mangle]
+pub extern "C" fn askar_terminate() {
+    error!("Shut down runtime");
+    crate::future::shutdown(Duration::from_secs(5));
 }
 
 #[no_mangle]

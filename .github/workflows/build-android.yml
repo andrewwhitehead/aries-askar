@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v3
       - run: |
           cargo install --bins --git https://github.com/rust-embedded/cross --tag v0.2.4 cross
-          cross build --target ${{matrix.architecture}} --release
+          cross build --lib --target ${{matrix.architecture}} --release
       - name: Save library
         uses: actions/upload-artifact@v3
         with:

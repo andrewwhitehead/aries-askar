@@ -71,6 +71,7 @@ class StoreHandle(ArcHandle):
     @classmethod
     def _cleanup(cls, value: c_size_t):
         """Close the store when there are no more references to this object."""
+        print("quick close")
         Lib().invoke_dtor(
             "askar_store_close",
             value,

@@ -56,7 +56,7 @@ impl CustomLogger {
 
 impl log::Log for CustomLogger {
     fn enabled(&self, metadata: &Metadata<'_>) -> bool {
-        if !self.disabled.load(Ordering::Acquire) {
+        if self.disabled.load(Ordering::Acquire) {
             false
         } else if let Some(enabled_cb) = self.enabled {
             enabled_cb(self.context, metadata.level() as i32) != 0
@@ -66,6 +66,10 @@ impl log::Log for CustomLogger {
     }
 
     fn log(&self, record: &Record<'_>) {
+        if !self.enabled(record.metadata()) {
+            return;
+        }
+
         let log_cb = self.log;
 
         let level = record.level() as i32;
