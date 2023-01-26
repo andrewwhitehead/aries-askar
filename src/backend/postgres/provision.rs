@@ -119,7 +119,7 @@ impl PostgresStoreOptions {
             conn_opts.log_slow_statements(log::LevelFilter::Debug, Default::default());
         }
         PgPoolOptions::default()
-            .connect_timeout(self.connect_timeout)
+            .acquire_timeout(self.connect_timeout)
             .idle_timeout(self.idle_timeout)
             .max_connections(self.max_connections)
             .min_connections(self.min_connections)
@@ -180,28 +180,26 @@ impl PostgresStoreOptions {
         if recreate {
             // remove expected tables
             reset_db(&mut *txn).await?;
-        } else {
-            if sqlx::query_scalar::<_, i64>(
-                "SELECT COUNT(*) FROM information_schema.tables
+        } else if sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM information_schema.tables
                 WHERE table_schema='public' AND table_name='config'",
+        )
+        .fetch_one(&mut txn)
+        .await?
+            == 1
+        {
+            // proceed to open, will fail if the version doesn't match
+            return open_db(
+                conn_pool,
+                Some(method),
+                pass_key,
+                profile,
+                self.host,
+                self.name,
             )
-            .fetch_one(&mut txn)
-            .await?
-                == 1
-            {
-                // proceed to open, will fail if the version doesn't match
-                return open_db(
-                    conn_pool,
-                    Some(method),
-                    pass_key,
-                    profile,
-                    self.host,
-                    self.name,
-                )
-                .await;
-            }
-            // no 'config' table, assume empty database
+            .await;
         }
+        // else: no 'config' table, assume empty database
 
         let (profile_key, enc_profile_key, store_key, store_key_ref) = unblock({
             let pass_key = pass_key.into_owned();
