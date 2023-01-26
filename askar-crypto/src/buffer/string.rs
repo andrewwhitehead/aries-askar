@@ -29,7 +29,7 @@ impl<B: AsRef<[u8]>> PartialEq<[u8]> for HexRepr<B> {
             }
         }
 
-        write!(&mut CmpWrite(other.into_iter()), "{}", self).is_ok()
+        write!(&mut CmpWrite(other.iter()), "{}", self).is_ok()
     }
 }
 

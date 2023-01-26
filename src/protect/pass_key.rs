@@ -8,7 +8,7 @@ use std::{
 };
 
 /// A possibly-empty password or key used to derive a store key
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct PassKey<'a>(Option<Cow<'a, str>>);
 
 impl PassKey<'_> {
@@ -44,12 +44,6 @@ impl Debug for PassKey<'_> {
         } else {
             f.debug_tuple("PassKey").field(&"<secret>").finish()
         }
-    }
-}
-
-impl Default for PassKey<'_> {
-    fn default() -> Self {
-        Self(None)
     }
 }
 
@@ -90,18 +84,15 @@ impl<'a> From<Option<&'a str>> for PassKey<'a> {
 
 impl<'a, 'b> PartialEq<PassKey<'b>> for PassKey<'a> {
     fn eq(&self, other: &PassKey<'b>) -> bool {
-        &**self == &**other
+        **self == **other
     }
 }
 impl Eq for PassKey<'_> {}
 
 impl Zeroize for PassKey<'_> {
     fn zeroize(&mut self) {
-        match self.0.take() {
-            Some(Cow::Owned(mut s)) => {
-                s.zeroize();
-            }
-            _ => (),
+        if let Some(Cow::Owned(mut s)) = self.0.take() {
+            s.zeroize();
         }
     }
 }

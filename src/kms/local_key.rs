@@ -146,12 +146,12 @@ impl LocalKey {
     /// Get the set of indexed JWK thumbprints for this key or keypair
     pub fn to_jwk_thumbprints(&self) -> Result<Vec<String>, Error> {
         if self.inner.algorithm() == KeyAlg::Bls12_381(BlsCurves::G1G2) {
-            return Ok(vec![
+            Ok(vec![
                 self.inner
                     .to_jwk_thumbprint(Some(KeyAlg::Bls12_381(BlsCurves::G1)))?,
                 self.inner
                     .to_jwk_thumbprint(Some(KeyAlg::Bls12_381(BlsCurves::G2)))?,
-            ]);
+            ])
         } else {
             Ok(vec![self.inner.to_jwk_thumbprint(None)?])
         }
@@ -189,8 +189,7 @@ impl LocalKey {
         if nonce_len == 0 {
             return Ok(Vec::new());
         }
-        let mut buf = Vec::with_capacity(nonce_len);
-        buf.resize(nonce_len, 0u8);
+        let mut buf = vec![0; nonce_len];
         fill_random(&mut buf);
         Ok(buf)
     }

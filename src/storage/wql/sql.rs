@@ -37,15 +37,15 @@ where
 
     fn encode_name(&mut self, name: &TagName) -> Result<Self::Arg, Error> {
         Ok(match name {
-            TagName::Encrypted(name) | TagName::Plaintext(name) => (&self.enc_name)(name)?,
+            TagName::Encrypted(name) | TagName::Plaintext(name) => (self.enc_name)(name)?,
         })
     }
 
-    fn encode_value(&mut self, value: &String, is_plaintext: bool) -> Result<Self::Arg, Error> {
+    fn encode_value(&mut self, value: &str, is_plaintext: bool) -> Result<Self::Arg, Error> {
         Ok(if is_plaintext {
             value.as_bytes().to_vec()
         } else {
-            (&self.enc_value)(value)?
+            (self.enc_value)(value)?
         })
     }
 

@@ -33,33 +33,32 @@ use crate::{
 mod provision;
 pub use provision::SqliteStoreOptions;
 
-const COUNT_QUERY: &'static str = "SELECT COUNT(*) FROM items i
+const COUNT_QUERY: &str = "SELECT COUNT(*) FROM items i
     WHERE profile_id = ?1 AND kind = ?2 AND category = ?3
     AND (expiry IS NULL OR expiry > DATETIME('now'))";
-const DELETE_QUERY: &'static str = "DELETE FROM items
+const DELETE_QUERY: &str = "DELETE FROM items
     WHERE profile_id = ?1 AND kind = ?2 AND category = ?3 AND name = ?4";
-const FETCH_QUERY: &'static str = "SELECT i.id, i.value,
+const FETCH_QUERY: &str = "SELECT i.id, i.value,
     (SELECT GROUP_CONCAT(it.plaintext || ':' || HEX(it.name) || ':' || HEX(it.value))
         FROM items_tags it WHERE it.item_id = i.id) AS tags
     FROM items i WHERE i.profile_id = ?1 AND i.kind = ?2
     AND i.category = ?3 AND i.name = ?4
     AND (i.expiry IS NULL OR i.expiry > DATETIME('now'))";
-const INSERT_QUERY: &'static str =
+const INSERT_QUERY: &str =
     "INSERT OR IGNORE INTO items (profile_id, kind, category, name, value, expiry)
     VALUES (?1, ?2, ?3, ?4, ?5, ?6)";
-const UPDATE_QUERY: &'static str =
-    "UPDATE items SET value=?5, expiry=?6 WHERE profile_id=?1 AND kind=?2
+const UPDATE_QUERY: &str = "UPDATE items SET value=?5, expiry=?6 WHERE profile_id=?1 AND kind=?2
     AND category=?3 AND name=?4 RETURNING id";
-const SCAN_QUERY: &'static str = "SELECT i.id, i.name, i.value,
+const SCAN_QUERY: &str = "SELECT i.id, i.name, i.value,
     (SELECT GROUP_CONCAT(it.plaintext || ':' || HEX(it.name) || ':' || HEX(it.value))
         FROM items_tags it WHERE it.item_id = i.id) AS tags
     FROM items i WHERE i.profile_id = ?1 AND i.kind = ?2 AND i.category = ?3
     AND (i.expiry IS NULL OR i.expiry > DATETIME('now'))";
-const DELETE_ALL_QUERY: &'static str = "DELETE FROM items AS i
+const DELETE_ALL_QUERY: &str = "DELETE FROM items AS i
     WHERE i.profile_id = ?1 AND i.kind = ?2 AND i.category = ?3";
-const TAG_INSERT_QUERY: &'static str = "INSERT INTO items_tags
+const TAG_INSERT_QUERY: &str = "INSERT INTO items_tags
     (item_id, name, value, plaintext) VALUES (?1, ?2, ?3, ?4)";
-const TAG_DELETE_QUERY: &'static str = "DELETE FROM items_tags
+const TAG_DELETE_QUERY: &str = "DELETE FROM items_tags
     WHERE item_id=?1";
 
 /// A Sqlite database store
@@ -359,12 +358,8 @@ impl QueryBackend for DbSession<Sqlite> {
             );
             pin!(scan);
             let mut enc_rows = vec![];
-            loop {
-                if let Some(rows) = scan.try_next().await? {
-                    enc_rows.extend(rows)
-                } else {
-                    break;
-                }
+            while let Some(rows) = scan.try_next().await? {
+                enc_rows.extend(rows)
             }
             unblock(move || decrypt_scan_batch(category, enc_rows, &key)).await
         })
@@ -466,7 +461,7 @@ impl QueryBackend for DbSession<Sqlite> {
                 })
                 .await?;
                 let mut active = acquire_session(&mut *self).await?;
-                Ok(perform_remove(&mut active, kind, &enc_category, &enc_name, false).await?)
+                perform_remove(&mut active, kind, &enc_category, &enc_name, false).await
             }),
         }
     }
@@ -508,9 +503,9 @@ async fn acquire_key(
     }
 }
 
-async fn acquire_session<'q>(
-    session: &'q mut DbSession<Sqlite>,
-) -> Result<DbSessionActive<'q, Sqlite>, Error> {
+async fn acquire_session(
+    session: &mut DbSession<Sqlite>,
+) -> Result<DbSessionActive<'_, Sqlite>, Error> {
     session.make_active(&resolve_profile_key).await
 }
 
@@ -521,24 +516,23 @@ async fn resolve_profile_key(
 ) -> Result<(ProfileId, Arc<ProfileKey>), Error> {
     if let Some((pid, key)) = cache.get_profile(profile.as_str()).await {
         Ok((pid, key))
+    } else if let Some(row) = sqlx::query("SELECT id, profile_key FROM profiles WHERE name=?1")
+        .bind(profile.as_str())
+        .fetch_optional(conn)
+        .await?
+    {
+        let pid = row.try_get(0)?;
+        let key = Arc::new(cache.load_key(row.try_get(1)?).await?);
+        cache.add_profile(profile, pid, key.clone()).await;
+        Ok((pid, key))
     } else {
-        if let Some(row) = sqlx::query("SELECT id, profile_key FROM profiles WHERE name=?1")
-            .bind(profile.as_str())
-            .fetch_optional(conn)
-            .await?
-        {
-            let pid = row.try_get(0)?;
-            let key = Arc::new(cache.load_key(row.try_get(1)?).await?);
-            cache.add_profile(profile, pid, key.clone()).await;
-            Ok((pid, key))
-        } else {
-            Err(err_msg!(NotFound, "Profile not found"))
-        }
+        Err(err_msg!(NotFound, "Profile not found"))
     }
 }
 
-async fn perform_insert<'q>(
-    active: &mut DbSessionTxn<'q, Sqlite>,
+#[allow(clippy::too_many_arguments)]
+async fn perform_insert(
+    active: &mut DbSessionTxn<'_, Sqlite>,
     kind: EntryKind,
     enc_category: &[u8],
     enc_name: &[u8],
@@ -616,8 +610,9 @@ async fn perform_remove<'q>(
     }
 }
 
-fn perform_scan<'q>(
-    mut active: DbSessionRef<'q, Sqlite>,
+#[allow(clippy::too_many_arguments)]
+fn perform_scan(
+    mut active: DbSessionRef<'_, Sqlite>,
     profile_id: ProfileId,
     key: Arc<ProfileKey>,
     kind: EntryKind,
@@ -625,7 +620,7 @@ fn perform_scan<'q>(
     tag_filter: Option<TagFilter>,
     offset: Option<i64>,
     limit: Option<i64>,
-) -> impl Stream<Item = Result<Vec<EncScanEntry>, Error>> + 'q {
+) -> impl Stream<Item = Result<Vec<EncScanEntry>, Error>> + '_ {
     try_stream! {
         let mut params = QueryParams::new();
         params.push(profile_id);
@@ -657,7 +652,6 @@ fn perform_scan<'q>(
             }
         }
         drop(rows);
-        drop(acquired);
         drop(active);
 
         if !batch.is_empty() {

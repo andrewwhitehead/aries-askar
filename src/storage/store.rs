@@ -40,17 +40,17 @@ impl<B: Backend> Store<B> {
         method: StoreKeyMethod,
         pass_key: PassKey<'_>,
     ) -> Result<(), Error> {
-        Ok(self.0.rekey_backend(method, pass_key).await?)
+        self.0.rekey_backend(method, pass_key).await
     }
 
     /// Create a new profile with the given profile name
     pub async fn create_profile(&self, name: Option<String>) -> Result<String, Error> {
-        Ok(self.0.create_profile(name).await?)
+        self.0.create_profile(name).await
     }
 
     /// Remove an existing profile with the given profile name
     pub async fn remove_profile(&self, name: String) -> Result<bool, Error> {
-        Ok(self.0.remove_profile(name).await?)
+        self.0.remove_profile(name).await
     }
 
     /// Create a new scan instance against the store
@@ -64,8 +64,7 @@ impl<B: Backend> Store<B> {
         offset: Option<i64>,
         limit: Option<i64>,
     ) -> Result<Scan<'static, Entry>, Error> {
-        Ok(self
-            .0
+        self.0
             .scan(
                 profile,
                 EntryKind::Item,
@@ -74,7 +73,7 @@ impl<B: Backend> Store<B> {
                 offset,
                 limit,
             )
-            .await?)
+            .await
     }
 
     /// Create a new session against the store
@@ -90,11 +89,11 @@ impl<B: Backend> Store<B> {
 
     /// Close the store instance, waiting for any shutdown procedures to complete.
     pub async fn close(self) -> Result<(), Error> {
-        Ok(self.0.close().await?)
+        self.0.close().await
     }
 
     pub(crate) async fn arc_close(self: Arc<Self>) -> Result<(), Error> {
-        Ok(self.0.close().await?)
+        self.0.close().await
     }
 }
 
@@ -115,7 +114,7 @@ impl<Q: QueryBackend> Session<Q> {
         category: &str,
         tag_filter: Option<TagFilter>,
     ) -> Result<i64, Error> {
-        Ok(self.0.count(EntryKind::Item, category, tag_filter).await?)
+        self.0.count(EntryKind::Item, category, tag_filter).await
     }
 
     /// Retrieve the current record at `(category, name)`.
@@ -128,10 +127,9 @@ impl<Q: QueryBackend> Session<Q> {
         name: &str,
         for_update: bool,
     ) -> Result<Option<Entry>, Error> {
-        Ok(self
-            .0
+        self.0
             .fetch(EntryKind::Item, category, name, for_update)
-            .await?)
+            .await
     }
 
     /// Retrieve all records matching the given `category` and `tag_filter`.
@@ -146,10 +144,9 @@ impl<Q: QueryBackend> Session<Q> {
         limit: Option<i64>,
         for_update: bool,
     ) -> Result<Vec<Entry>, Error> {
-        Ok(self
-            .0
+        self.0
             .fetch_all(EntryKind::Item, category, tag_filter, limit, for_update)
-            .await?)
+            .await
     }
 
     /// Insert a new record into the store
@@ -161,8 +158,7 @@ impl<Q: QueryBackend> Session<Q> {
         tags: Option<&[EntryTag]>,
         expiry_ms: Option<i64>,
     ) -> Result<(), Error> {
-        Ok(self
-            .0
+        self.0
             .update(
                 EntryKind::Item,
                 EntryOperation::Insert,
@@ -172,13 +168,12 @@ impl<Q: QueryBackend> Session<Q> {
                 tags,
                 expiry_ms,
             )
-            .await?)
+            .await
     }
 
     /// Remove a record from the store
     pub async fn remove(&mut self, category: &str, name: &str) -> Result<(), Error> {
-        Ok(self
-            .0
+        self.0
             .update(
                 EntryKind::Item,
                 EntryOperation::Remove,
@@ -188,7 +183,7 @@ impl<Q: QueryBackend> Session<Q> {
                 None,
                 None,
             )
-            .await?)
+            .await
     }
 
     /// Replace the value and tags of a record in the store
@@ -200,8 +195,7 @@ impl<Q: QueryBackend> Session<Q> {
         tags: Option<&[EntryTag]>,
         expiry_ms: Option<i64>,
     ) -> Result<(), Error> {
-        Ok(self
-            .0
+        self.0
             .update(
                 EntryKind::Item,
                 EntryOperation::Replace,
@@ -211,7 +205,7 @@ impl<Q: QueryBackend> Session<Q> {
                 tags,
                 expiry_ms,
             )
-            .await?)
+            .await
     }
 
     /// Remove all records in the store matching a given `category` and `tag_filter`
@@ -220,10 +214,9 @@ impl<Q: QueryBackend> Session<Q> {
         category: &str,
         tag_filter: Option<TagFilter>,
     ) -> Result<i64, Error> {
-        Ok(self
-            .0
+        self.0
             .remove_all(EntryKind::Item, category, tag_filter)
-            .await?)
+            .await
     }
 
     /// Perform a record update
@@ -239,8 +232,7 @@ impl<Q: QueryBackend> Session<Q> {
         tags: Option<&[EntryTag]>,
         expiry_ms: Option<i64>,
     ) -> Result<(), Error> {
-        Ok(self
-            .0
+        self.0
             .update(
                 EntryKind::Item,
                 operation,
@@ -250,7 +242,7 @@ impl<Q: QueryBackend> Session<Q> {
                 tags,
                 expiry_ms,
             )
-            .await?)
+            .await
     }
 
     /// Insert a local key instance into the store
@@ -434,11 +426,11 @@ impl<Q: QueryBackend> Session<Q> {
 
     /// Commit the pending transaction
     pub async fn commit(self) -> Result<(), Error> {
-        Ok(self.0.close(true).await?)
+        self.0.close(true).await
     }
 
     /// Roll back the pending transaction
     pub async fn rollback(self) -> Result<(), Error> {
-        Ok(self.0.close(false).await?)
+        self.0.close(false).await
     }
 }

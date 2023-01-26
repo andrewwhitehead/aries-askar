@@ -64,7 +64,7 @@ impl WriteBuffer for Vec<u8> {
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 impl ResizeBuffer for Vec<u8> {
     fn buffer_insert(&mut self, pos: usize, data: &[u8]) -> Result<(), Error> {
-        self.splice(pos..pos, data.into_iter().cloned());
+        self.splice(pos..pos, data.iter().cloned());
         Ok(())
     }
 
@@ -87,19 +87,19 @@ mod tests {
     pub(crate) fn test_write_buffer<B: WriteBuffer + AsRef<[u8]>>(mut w: B) {
         w.buffer_write(b"he").unwrap();
         w.buffer_write(b"y").unwrap();
-        assert_eq!(&w.as_ref()[..], b"hey");
+        assert_eq!(w.as_ref(), b"hey");
     }
 
     pub(crate) fn test_resize_buffer<B: ResizeBuffer>(mut w: B) {
         w.buffer_write(b"hello").unwrap();
         w.buffer_insert(1, b"world").unwrap();
-        assert_eq!(&w.as_ref()[..], b"hworldello");
+        assert_eq!(w.as_ref(), b"hworldello");
         w.buffer_resize(12).unwrap();
-        assert_eq!(&w.as_ref()[..], b"hworldello\0\0");
+        assert_eq!(w.as_ref(), b"hworldello\0\0");
         w.buffer_resize(6).unwrap();
-        assert_eq!(&w.as_ref()[..], b"hworld");
+        assert_eq!(w.as_ref(), b"hworld");
         w.buffer_insert(1, b"ello").unwrap();
-        assert_eq!(&w.as_ref()[..], b"helloworld");
+        assert_eq!(w.as_ref(), b"helloworld");
     }
 
     #[test]

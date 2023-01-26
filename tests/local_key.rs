@@ -1,8 +1,10 @@
+#![allow(clippy::bool_assert_comparison)]
+
 use aries_askar::kms::{KeyAlg, LocalKey};
 
-const ERR_CREATE_KEYPAIR: &'static str = "Error creating keypair";
-const ERR_SIGN: &'static str = "Error signing message";
-const ERR_VERIFY: &'static str = "Error verifying signature";
+const ERR_CREATE_KEYPAIR: &str = "Error creating keypair";
+const ERR_SIGN: &str = "Error signing message";
+const ERR_VERIFY: &str = "Error verifying signature";
 
 pub async fn localkey_sign_verify() {
     let keypair = LocalKey::generate(KeyAlg::Ed25519, true).expect(ERR_CREATE_KEYPAIR);

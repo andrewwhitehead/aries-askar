@@ -7,24 +7,24 @@ use aries_askar::{
 
 use tokio::task::spawn;
 
-const ERR_PROFILE: &'static str = "Error creating profile";
-const ERR_SESSION: &'static str = "Error starting session";
-const ERR_TRANSACTION: &'static str = "Error starting transaction";
-const ERR_COMMIT: &'static str = "Error committing transaction";
-const ERR_COUNT: &'static str = "Error performing count";
-const ERR_FETCH: &'static str = "Error fetching test row";
-const ERR_FETCH_ALL: &'static str = "Error fetching all test rows";
-const ERR_REQ_ROW: &'static str = "Expected row";
-const ERR_REQ_ERR: &'static str = "Expected error";
-const ERR_INSERT: &'static str = "Error inserting test row";
-const ERR_REPLACE: &'static str = "Error replacing test row";
-const ERR_REMOVE_ALL: &'static str = "Error removing test rows";
-const ERR_SCAN: &'static str = "Error starting scan";
-const ERR_SCAN_NEXT: &'static str = "Error fetching scan rows";
-const ERR_CREATE_KEYPAIR: &'static str = "Error creating keypair";
-const ERR_INSERT_KEY: &'static str = "Error inserting key";
-const ERR_FETCH_KEY: &'static str = "Error fetching key";
-const ERR_LOAD_KEY: &'static str = "Error loading key";
+const ERR_PROFILE: &str = "Error creating profile";
+const ERR_SESSION: &str = "Error starting session";
+const ERR_TRANSACTION: &str = "Error starting transaction";
+const ERR_COMMIT: &str = "Error committing transaction";
+const ERR_COUNT: &str = "Error performing count";
+const ERR_FETCH: &str = "Error fetching test row";
+const ERR_FETCH_ALL: &str = "Error fetching all test rows";
+const ERR_REQ_ROW: &str = "Expected row";
+const ERR_REQ_ERR: &str = "Expected error";
+const ERR_INSERT: &str = "Error inserting test row";
+const ERR_REPLACE: &str = "Error replacing test row";
+const ERR_REMOVE_ALL: &str = "Error removing test rows";
+const ERR_SCAN: &str = "Error starting scan";
+const ERR_SCAN_NEXT: &str = "Error fetching scan rows";
+const ERR_CREATE_KEYPAIR: &str = "Error creating keypair";
+const ERR_INSERT_KEY: &str = "Error inserting key";
+const ERR_FETCH_KEY: &str = "Error fetching key";
+const ERR_LOAD_KEY: &str = "Error loading key";
 
 pub trait TestStore: Clone + Deref<Target = Store<Self::DB>> + Send + Sync {
     type DB: Backend + Debug + 'static;
@@ -43,24 +43,20 @@ impl<B: Backend + Debug + 'static> TestStore for Arc<Store<B>> {
 
 pub async fn db_create_remove_profile(db: impl TestStore) {
     let profile = db.create_profile(None).await.expect(ERR_PROFILE);
-    assert_eq!(
-        db.remove_profile(profile)
-            .await
-            .expect("Error removing profile"),
-        true
-    );
-    assert_eq!(
-        db.remove_profile("not a profile".to_string())
-            .await
-            .expect("Error removing profile"),
-        false
-    );
+    assert!(db
+        .remove_profile(profile)
+        .await
+        .expect("Error removing profile"),);
+    assert!(!db
+        .remove_profile("not a profile".to_string())
+        .await
+        .expect("Error removing profile"),);
 }
 
 pub async fn db_fetch_fail(db: impl TestStore) {
     let mut conn = db.session(None).await.expect(ERR_SESSION);
     let result = conn.fetch("cat", "name", false).await.expect(ERR_FETCH);
-    assert_eq!(result.is_none(), true);
+    assert!(result.is_none());
 }
 
 pub async fn db_insert_fetch(db: impl TestStore) {
@@ -364,7 +360,7 @@ pub async fn db_count_exist(db: impl TestStore) {
     assert_eq!(
         conn.count(
             &test_row.category,
-            Some(TagFilter::not(TagFilter::exist(vec![
+            Some(TagFilter::negate(TagFilter::exist(vec![
                 "enc".to_string(),
                 "other".to_string()
             ]),))
@@ -490,19 +486,19 @@ pub async fn db_keypair_insert_fetch(db: impl TestStore) {
 
     let key_name = "testkey";
     let metadata = "meta";
-    conn.insert_key(&key_name, &keypair, Some(metadata), None, None)
+    conn.insert_key(key_name, &keypair, Some(metadata), None, None)
         .await
         .expect(ERR_INSERT_KEY);
 
     let found = conn
-        .fetch_key(&key_name, false)
+        .fetch_key(key_name, false)
         .await
         .expect(ERR_FETCH_KEY)
         .expect(ERR_REQ_ROW);
     assert_eq!(found.algorithm(), Some(KeyAlg::Ed25519.as_str()));
     assert_eq!(found.name(), key_name);
     assert_eq!(found.metadata(), Some(metadata));
-    assert_eq!(found.is_local(), true);
+    assert!(found.is_local());
     found.load_local_key().expect(ERR_LOAD_KEY);
 }
 
@@ -695,7 +691,7 @@ pub async fn db_txn_contention(db: impl TestStore + 'static) {
             conn.replace(
                 &category,
                 &name,
-                &format!("{}", val + 1).as_bytes(),
+                format!("{}", val + 1).as_bytes(),
                 Some(row.tags.as_slice()),
                 None,
             )

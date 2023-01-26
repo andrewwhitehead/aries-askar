@@ -28,9 +28,9 @@ new_sequence_handle!(ScanHandle, FFI_SCAN_COUNTER);
 static FFI_STORES: Lazy<RwLock<BTreeMap<StoreHandle, Arc<AnyStore>>>> =
     Lazy::new(|| RwLock::new(BTreeMap::new()));
 static FFI_SESSIONS: Lazy<StoreResourceMap<SessionHandle, AnySession>> =
-    Lazy::new(|| StoreResourceMap::new());
+    Lazy::new(StoreResourceMap::new);
 static FFI_SCANS: Lazy<StoreResourceMap<ScanHandle, Scan<'static, Entry>>> =
-    Lazy::new(|| StoreResourceMap::new());
+    Lazy::new(StoreResourceMap::new);
 
 impl StoreHandle {
     pub async fn create(value: AnyStore) -> Self {
@@ -63,6 +63,7 @@ impl StoreHandle {
 }
 
 struct StoreResourceMap<K, V> {
+    #[allow(clippy::type_complexity)]
     map: RwLock<BTreeMap<K, (StoreHandle, Arc<TryMutex<V>>)>>,
 }
 
@@ -177,7 +178,7 @@ pub extern "C" fn askar_store_provision(
                 let store = spec_uri.provision_backend(
                     key_method,
                     pass_key,
-                    profile.as_ref().map(String::as_str),
+                    profile.as_deref(),
                     recreate != 0
                 ).await?;
                 Ok(StoreHandle::create(store).await)
@@ -221,7 +222,7 @@ pub extern "C" fn askar_store_open(
                 let store = spec_uri.open_backend(
                     key_method,
                     pass_key,
-                    profile.as_ref().map(String::as_str)
+                    profile.as_deref()
                 ).await?;
                 Ok(StoreHandle::create(store).await)
             }.await;
@@ -333,7 +334,7 @@ pub extern "C" fn askar_store_remove_profile(
         spawn_ok(async move {
             let result = async {
                 let store = handle.load().await?;
-                Ok(store.remove_profile(profile).await?)
+                store.remove_profile(profile).await
             }.await;
             cb.resolve(result);
         });
@@ -730,7 +731,7 @@ pub extern "C" fn askar_session_update(
         spawn_ok(async move {
             let result = async {
                 let mut session = FFI_SESSIONS.borrow(handle).await?;
-                let result = session.update(operation, &category, &name, Some(value.as_slice()), tags.as_ref().map(Vec::as_slice), expiry_ms).await;
+                let result = session.update(operation, &category, &name, Some(value.as_slice()), tags.as_deref(), expiry_ms).await;
                 result
             }.await;
             cb.resolve(result);
@@ -785,8 +786,8 @@ pub extern "C" fn askar_session_insert_key(
                 let result = session.insert_key(
                     name.as_str(),
                     &key,
-                    metadata.as_ref().map(String::as_str),
-                    tags.as_ref().map(Vec::as_slice),
+                    metadata.as_deref(),
+                    tags.as_deref(),
                     expiry_ms,
                 ).await;
                 result
@@ -871,8 +872,8 @@ pub extern "C" fn askar_session_fetch_all_keys(
             let result = async {
                 let mut session = FFI_SESSIONS.borrow(handle).await?;
                 let result = session.fetch_all_keys(
-                    alg.as_ref().map(String::as_str),
-                    thumbprint.as_ref().map(String::as_str),
+                    alg.as_deref(),
+                    thumbprint.as_deref(),
                     tag_filter,
                     limit,
                     for_update != 0
@@ -928,8 +929,8 @@ pub extern "C" fn askar_session_update_key(
                 let mut session = FFI_SESSIONS.borrow(handle).await?;
                 let result = session.update_key(
                     &name,
-                    metadata.as_ref().map(String::as_str),
-                    tags.as_ref().map(Vec::as_slice),
+                    metadata.as_deref(),
+                    tags.as_deref(),
                     expiry_ms,
 
                 ).await;

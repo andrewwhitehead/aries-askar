@@ -22,6 +22,12 @@ impl<D: Digest> HashBuffer<D> {
     }
 }
 
+impl<D: Digest> Default for HashBuffer<D> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<D: Debug + Digest> WriteBuffer for HashBuffer<D> {
     fn buffer_write(&mut self, data: &[u8]) -> Result<(), Error> {
         self.0.update(data);

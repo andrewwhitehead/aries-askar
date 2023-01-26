@@ -44,7 +44,7 @@ impl KeyCache {
             let data = store_key
                 .unwrap_data(ciphertext)
                 .map_err(err_map!(Encryption, "Error decrypting profile key"))?;
-            Ok(ProfileKey::from_slice(data.as_ref())?)
+            ProfileKey::from_slice(data.as_ref())
         })
         .await
     }
@@ -112,13 +112,13 @@ impl EntryEncryptor for NullEncryptor {
             .into_iter()
             .map(|tag| match tag {
                 EntryTag::Encrypted(name, value) => EncEntryTag {
-                    name: name.into_bytes().into(),
-                    value: value.into_bytes().into(),
+                    name: name.into_bytes(),
+                    value: value.into_bytes(),
                     plaintext: false,
                 },
                 EntryTag::Plaintext(name, value) => EncEntryTag {
-                    name: name.into_bytes().into(),
-                    value: value.into_bytes().into(),
+                    name: name.into_bytes(),
+                    value: value.into_bytes(),
                     plaintext: true,
                 },
             })
@@ -126,10 +126,10 @@ impl EntryEncryptor for NullEncryptor {
     }
 
     fn decrypt_entry_category(&self, enc_category: Vec<u8>) -> Result<String, Error> {
-        Ok(String::from_utf8(enc_category).map_err(err_map!(Encryption))?)
+        String::from_utf8(enc_category).map_err(err_map!(Encryption))
     }
     fn decrypt_entry_name(&self, enc_name: Vec<u8>) -> Result<String, Error> {
-        Ok(String::from_utf8(enc_name).map_err(err_map!(Encryption))?)
+        String::from_utf8(enc_name).map_err(err_map!(Encryption))
     }
     fn decrypt_entry_value(
         &self,
@@ -140,7 +140,7 @@ impl EntryEncryptor for NullEncryptor {
         Ok(enc_value.into())
     }
     fn decrypt_entry_tags(&self, enc_tags: Vec<EncEntryTag>) -> Result<Vec<EntryTag>, Error> {
-        Ok(enc_tags.into_iter().try_fold(vec![], |mut acc, tag| {
+        enc_tags.into_iter().try_fold(vec![], |mut acc, tag| {
             let name = String::from_utf8(tag.name).map_err(err_map!(Encryption))?;
             let value = String::from_utf8(tag.value).map_err(err_map!(Encryption))?;
             acc.push(if tag.plaintext {
@@ -149,6 +149,6 @@ impl EntryEncryptor for NullEncryptor {
                 EntryTag::Encrypted(name, value)
             });
             Result::<_, Error>::Ok(acc)
-        })?)
+        })
     }
 }

@@ -39,7 +39,7 @@ pub struct JwkParts<'a> {
 
 impl<'de> JwkParts<'de> {
     /// Parse a JWK from a string reference
-    pub fn from_str(jwk: &'de str) -> Result<Self, Error> {
+    pub fn try_from_str(jwk: &'de str) -> Result<Self, Error> {
         let (parts, _read) =
             serde_json_core::from_str(jwk).map_err(err_map!(Invalid, "Error parsing JWK"))?;
         Ok(parts)
@@ -67,7 +67,7 @@ impl OptAttr<'_> {
         self.0.is_some()
     }
 
-    pub fn to_option(&self) -> Option<&str> {
+    pub fn as_opt_str(&self) -> Option<&str> {
         self.0
     }
 
@@ -211,26 +211,26 @@ impl Serialize for JwkParts<'_> {
         S: Serializer,
     {
         let mut map = serializer.serialize_map(None)?;
-        if let Some(alg) = self.alg.to_option() {
+        if let Some(alg) = self.alg.as_opt_str() {
             map.serialize_entry("alg", alg)?;
         }
-        if let Some(crv) = self.crv.to_option() {
+        if let Some(crv) = self.crv.as_opt_str() {
             map.serialize_entry("crv", crv)?;
         }
-        if let Some(d) = self.d.to_option() {
+        if let Some(d) = self.d.as_opt_str() {
             map.serialize_entry("d", d)?;
         }
-        if let Some(k) = self.k.to_option() {
+        if let Some(k) = self.k.as_opt_str() {
             map.serialize_entry("k", k)?;
         }
-        if let Some(kid) = self.kid.to_option() {
+        if let Some(kid) = self.kid.as_opt_str() {
             map.serialize_entry("kid", kid)?;
         }
         map.serialize_entry("kty", self.kty)?;
-        if let Some(x) = self.x.to_option() {
+        if let Some(x) = self.x.as_opt_str() {
             map.serialize_entry("x", x)?;
         }
-        if let Some(y) = self.y.to_option() {
+        if let Some(y) = self.y.as_opt_str() {
             map.serialize_entry("y", y)?;
         }
         if let Some(ops) = self.key_ops {
@@ -254,7 +254,7 @@ mod tests {
             "key_ops": ["sign", "verify"],
             "kid": "FdFYFzERwC2uCBB46pZQi4GG85LujR8obt-KWRBICVQ"
         }"#;
-        let parts = JwkParts::from_str(jwk).unwrap();
+        let parts = JwkParts::try_from_str(jwk).unwrap();
         assert_eq!(parts.kty, "OKP");
         assert_eq!(
             parts.kid,

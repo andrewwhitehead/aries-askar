@@ -64,10 +64,10 @@ where
         nonce: &[u8],
         aad: &[u8],
     ) -> Result<usize, Error> {
-        if nonce.len() != 0 {
+        if !nonce.is_empty() {
             return Err(err_msg!(Unsupported, "Custom nonce not supported"));
         }
-        if aad.len() != 0 {
+        if !aad.is_empty() {
             return Err(err_msg!(Unsupported, "AAD not supported"));
         }
         let mut buf_len = buffer.as_ref().len();
@@ -108,10 +108,10 @@ where
         nonce: &[u8],
         aad: &[u8],
     ) -> Result<(), Error> {
-        if nonce.len() != 0 {
+        if !nonce.is_empty() {
             return Err(err_msg!(Unsupported, "Custom nonce not supported"));
         }
-        if aad.len() != 0 {
+        if !aad.is_empty() {
             return Err(err_msg!(Unsupported, "AAD not supported"));
         }
         if buffer.as_ref().len() % 8 != 0 {

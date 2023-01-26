@@ -1,6 +1,8 @@
+#![allow(clippy::bool_assert_comparison)]
+
 mod utils;
 
-const ERR_CLOSE: &'static str = "Error closing database";
+const ERR_CLOSE: &str = "Error closing database";
 
 macro_rules! backend_tests {
     ($init:expr) => {
@@ -231,7 +233,7 @@ mod sqlite {
     #[test]
     fn create_remove_db() {
         log_init();
-        let fname = format!("sqlite-test-{}.db", uuid::Uuid::new_v4().to_string());
+        let fname = format!("sqlite-test-{}.db", uuid::Uuid::new_v4());
         assert_eq!(
             Path::new(&fname).exists(),
             false,
@@ -281,7 +283,7 @@ mod sqlite {
     #[test]
     fn rekey_db() {
         log_init();
-        let fname = format!("sqlite-rekey-{}.db", uuid::Uuid::new_v4().to_string());
+        let fname = format!("sqlite-rekey-{}.db", uuid::Uuid::new_v4());
         let key1 = generate_raw_store_key(None).expect("Error creating raw key");
         let key2 = generate_raw_store_key(None).expect("Error creating raw key");
         assert_ne!(key1, key2);
@@ -320,7 +322,7 @@ mod sqlite {
     #[test]
     fn txn_contention_file() {
         log_init();
-        let fname = format!("sqlite-contention-{}.db", uuid::Uuid::new_v4().to_string());
+        let fname = format!("sqlite-contention-{}.db", uuid::Uuid::new_v4());
         let key = generate_raw_store_key(None).expect("Error creating raw key");
 
         block_on(async move {

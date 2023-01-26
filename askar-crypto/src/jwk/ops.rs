@@ -67,7 +67,7 @@ impl KeyOps {
     }
 
     /// Parse a key operation from a string reference
-    pub fn from_str(key: &str) -> Option<Self> {
+    pub fn try_from_str(key: &str) -> Option<Self> {
         match key {
             "sign" => Some(Self::Sign),
             "verify" => Some(Self::Verify),
@@ -218,7 +218,7 @@ impl<'de> Visitor<'de> for KeyOpsVisitor {
     {
         let mut ops = KeyOpsSet::new();
         while let Some(op) = seq.next_element()? {
-            if let Some(op) = KeyOps::from_str(op) {
+            if let Some(op) = KeyOps::try_from_str(op) {
                 if ops & op {
                     return Err(serde::de::Error::duplicate_field(op.as_str()));
                 } else {
@@ -258,8 +258,8 @@ mod tests {
 
     #[test]
     fn invariants() {
-        assert_eq!(KeyOpsSet::new().is_empty(), true);
-        assert_eq!(KeyOpsSet::from(KeyOps::Decrypt).is_empty(), false);
+        assert!(KeyOpsSet::new().is_empty());
+        assert!(!KeyOpsSet::from(KeyOps::Decrypt).is_empty());
         assert_eq!(KeyOpsSet::new(), KeyOpsSet::new());
         assert_ne!(KeyOpsSet::from(KeyOps::Decrypt), KeyOpsSet::new());
         assert_ne!(KeyOps::Decrypt, KeyOps::Encrypt);

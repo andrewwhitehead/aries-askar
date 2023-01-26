@@ -45,19 +45,23 @@ impl Writer<'_, [u8]> {
         assert!(range.end >= range.start);
         let rem_len = range.len();
         let ins_len = iter.len();
-        if ins_len > rem_len {
-            let diff = ins_len - rem_len;
-            if self.pos + diff > self.inner.len() {
-                return Err(err_msg!(ExceededBuffer));
+        match ins_len {
+            _ if ins_len > rem_len => {
+                let diff = ins_len - rem_len;
+                if self.pos + diff > self.inner.len() {
+                    return Err(err_msg!(ExceededBuffer));
+                }
+                self.inner
+                    .copy_within((range.end - diff)..self.pos, range.end);
+                self.pos += diff;
             }
-            self.inner
-                .copy_within((range.end - diff)..self.pos, range.end);
-            self.pos += diff;
-        } else if ins_len < rem_len {
-            let diff = rem_len - ins_len;
-            self.inner
-                .copy_within(range.end..self.pos, range.end - diff);
-            self.pos -= diff;
+            _ if ins_len < rem_len => {
+                let diff = rem_len - ins_len;
+                self.inner
+                    .copy_within(range.end..self.pos, range.end - diff);
+                self.pos -= diff;
+            }
+            _ => {}
         }
         for idx in 0..ins_len {
             self.inner[range.start + idx] = iter.next().unwrap();
@@ -93,7 +97,7 @@ impl WriteBuffer for Writer<'_, [u8]> {
 
 impl ResizeBuffer for Writer<'_, [u8]> {
     fn buffer_insert(&mut self, pos: usize, data: &[u8]) -> Result<(), Error> {
-        self.splice(pos..pos, data.into_iter().cloned())
+        self.splice(pos..pos, data.iter().cloned())
     }
 
     fn buffer_remove(&mut self, range: Range<usize>) -> Result<(), Error> {

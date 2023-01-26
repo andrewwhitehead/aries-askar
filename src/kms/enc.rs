@@ -61,6 +61,7 @@ pub struct ToDecrypt<'d> {
 
 impl<'d> ToDecrypt<'d> {
     /// Accessor for the combined length
+    #[allow(clippy::len_without_is_empty)]
     #[inline]
     pub fn len(&self) -> usize {
         self.ciphertext.len() + self.tag.len()

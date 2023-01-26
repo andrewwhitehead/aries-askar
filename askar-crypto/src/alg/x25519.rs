@@ -32,9 +32,9 @@ pub const SECRET_KEY_LENGTH: usize = 32;
 pub const KEYPAIR_LENGTH: usize = SECRET_KEY_LENGTH + PUBLIC_KEY_LENGTH;
 
 /// The 'kty' value of an X25519 JWK
-pub static JWK_KEY_TYPE: &'static str = "OKP";
+pub static JWK_KEY_TYPE: &str = "OKP";
 /// The 'crv' value of an X25519 JWK
-pub static JWK_CURVE: &'static str = "X25519";
+pub static JWK_CURVE: &str = "X25519";
 
 /// An X25519 public key or keypair
 #[derive(Clone)]
@@ -202,20 +202,18 @@ impl FromJwk for X25519KeyPair {
         ArrayKey::<U32>::temp(|pk_arr| {
             if jwk.x.decode_base64(pk_arr)? != pk_arr.len() {
                 Err(err_msg!(InvalidKeyData))
+            } else if jwk.d.is_some() {
+                ArrayKey::<U32>::temp(|sk_arr| {
+                    if jwk.d.decode_base64(sk_arr)? != sk_arr.len() {
+                        Err(err_msg!(InvalidKeyData))
+                    } else {
+                        let kp = X25519KeyPair::from_secret_bytes(sk_arr)?;
+                        kp.check_public_bytes(pk_arr)?;
+                        Ok(kp)
+                    }
+                })
             } else {
-                if jwk.d.is_some() {
-                    ArrayKey::<U32>::temp(|sk_arr| {
-                        if jwk.d.decode_base64(sk_arr)? != sk_arr.len() {
-                            Err(err_msg!(InvalidKeyData))
-                        } else {
-                            let kp = X25519KeyPair::from_secret_bytes(sk_arr)?;
-                            kp.check_public_bytes(pk_arr)?;
-                            Ok(kp)
-                        }
-                    })
-                } else {
-                    X25519KeyPair::from_public_bytes(pk_arr)
-                }
+                X25519KeyPair::from_public_bytes(pk_arr)
             }
         })
     }
@@ -263,7 +261,7 @@ mod tests {
         let jwk = kp
             .to_jwk_public(None)
             .expect("Error converting public key to JWK");
-        let jwk = JwkParts::from_str(&jwk).expect("Error parsing JWK output");
+        let jwk = JwkParts::try_from_str(&jwk).expect("Error parsing JWK output");
         assert_eq!(jwk.kty, JWK_KEY_TYPE);
         assert_eq!(jwk.crv, JWK_CURVE);
         assert_eq!(jwk.x, "tGskN_ae61DP4DLY31_fjkbvnKqf-ze7kA6Cj2vyQxU");

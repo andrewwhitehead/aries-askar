@@ -81,7 +81,7 @@ impl Error {
 
     /// Accessor for the error message
     pub fn message(&self) -> Option<&str> {
-        self.message.as_ref().map(String::as_str)
+        self.message.as_deref()
     }
 
     pub(crate) fn with_cause<T: Into<Box<dyn StdError + Send + Sync + 'static>>>(

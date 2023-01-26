@@ -75,6 +75,7 @@ pub fn crypto_box_seal_open(
 }
 
 /// Derive an ECDH-1PU shared key for authenticated encryption
+#[allow(clippy::too_many_arguments)]
 pub fn derive_key_ecdh_1pu(
     key_alg: KeyAlg,
     ephem_key: &LocalKey,

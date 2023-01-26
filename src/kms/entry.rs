@@ -29,9 +29,8 @@ impl KeyParams {
     }
 
     pub(crate) fn from_slice(params: &[u8]) -> Result<KeyParams, Error> {
-        let result = serde_cbor::from_slice(params)
-            .map_err(|e| err_msg!(Unexpected, "Error deserializing key params: {}", e));
-        result
+        serde_cbor::from_slice(params)
+            .map_err(|e| err_msg!(Unexpected, "Error deserializing key params: {}", e))
     }
 }
 

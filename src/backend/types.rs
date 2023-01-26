@@ -108,6 +108,7 @@ pub trait QueryBackend: Send {
     ) -> BoxFuture<'q, Result<i64, Error>>;
 
     /// Insert or replace a record in the store
+    #[allow(clippy::too_many_arguments)]
     fn update<'q>(
         &'q mut self,
         kind: EntryKind,

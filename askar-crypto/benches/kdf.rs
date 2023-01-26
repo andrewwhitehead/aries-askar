@@ -18,7 +18,7 @@ fn criterion_benchmark(c: &mut Criterion) {
             prv_info: &[],
         };
 
-        c.bench_function(&format!("concat kdf sha256"), move |b| {
+        c.bench_function("concat kdf sha256", move |b| {
             b.iter(|| {
                 let mut output = [0u8; 32];
                 ConcatKDF::<Sha256>::derive_key(black_box(message), black_box(params), &mut output)

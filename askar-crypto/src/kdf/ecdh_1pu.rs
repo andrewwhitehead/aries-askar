@@ -27,6 +27,7 @@ pub struct Ecdh1PU<'d, Key: KeyExchange + ?Sized> {
 
 impl<'d, Key: KeyExchange + ?Sized> Ecdh1PU<'d, Key> {
     /// Create a new KDF instance
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         ephem_key: &'d Key,
         send_key: &'d Key,
@@ -80,7 +81,7 @@ impl<Key: KeyExchange + ?Sized> KeyDerivation for Ecdh1PU<'_, Key> {
         pub_w.buffer_write(&((output_len as u32) * 8).to_be_bytes())?; // output length in bits
         if !self.cc_tag.is_empty() {
             pub_w.buffer_write(&(self.cc_tag.len() as u32).to_be_bytes())?;
-            pub_w.buffer_write(&self.cc_tag)?;
+            pub_w.buffer_write(self.cc_tag)?;
         }
 
         kdf.hash_params(ConcatKDFParams {

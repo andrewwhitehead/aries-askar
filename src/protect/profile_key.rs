@@ -210,7 +210,7 @@ where
                     let name = self.encrypt_tag_name(name.into())?;
                     Ok(EncEntryTag {
                         name,
-                        value: value.into_bytes().into(),
+                        value: value.into_bytes(),
                         plaintext: true,
                     })
                 }
@@ -274,7 +274,7 @@ mod tests {
             .encrypt_entry_value(
                 test_record.category.as_bytes(),
                 test_record.name.as_bytes(),
-                test_record.value.clone().into(),
+                test_record.value.clone(),
             )
             .unwrap();
         let enc_tags = key.encrypt_entry_tags(test_record.tags.clone()).unwrap();

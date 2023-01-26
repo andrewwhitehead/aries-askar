@@ -9,7 +9,7 @@ mod argon2;
 pub use self::argon2::Level as Argon2Level;
 use self::argon2::SaltSize as Argon2Salt;
 
-pub const METHOD_ARGON2I: &'static str = "argon2i";
+pub const METHOD_ARGON2I: &str = "argon2i";
 
 /// Supported KDF methods for generating or referencing a store key
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -19,36 +19,31 @@ pub enum KdfMethod {
 }
 
 impl KdfMethod {
-    pub(crate) fn from_str(method: &str) -> Option<(Self, String)> {
+    pub(crate) fn decode(method: &str) -> Result<(Self, String), Error> {
         let mut method_and_detail = method.splitn(3, ':');
         let prefix = method_and_detail.next();
-        if prefix != Some(PREFIX_KDF) {
-            return None;
-        }
-        let method = method_and_detail.next().unwrap_or_default();
-        let mut level_and_detail = method_and_detail.next().unwrap_or_default().splitn(2, '?');
-        let level = level_and_detail.next().unwrap_or_default();
-        let detail = level_and_detail.next().unwrap_or_default();
-        match method {
-            METHOD_ARGON2I => {
+        if prefix == Some(PREFIX_KDF) {
+            let method = method_and_detail.next().unwrap_or_default();
+            let mut level_and_detail = method_and_detail.next().unwrap_or_default().splitn(2, '?');
+            let level = level_and_detail.next().unwrap_or_default();
+            let detail = level_and_detail.next().unwrap_or_default();
+            if method == METHOD_ARGON2I {
                 if let Some(level) = Argon2Level::from_str(level) {
-                    Some((
+                    return Ok((
                         Self::Argon2i(level),
                         if detail.is_empty() {
                             "".to_owned()
                         } else {
                             format!("?{}", detail)
                         },
-                    ))
-                } else {
-                    None
+                    ));
                 }
             }
-            _ => None,
         }
+        Err(err_msg!(Unsupported, "Invalid key derivation method"))
     }
 
-    pub(crate) fn to_string(&self, detail: Option<&str>) -> String {
+    pub(crate) fn encode(&self, detail: Option<&str>) -> String {
         match self {
             Self::Argon2i(level) => format!(
                 "{}:{}:{}{}",
@@ -66,7 +61,7 @@ impl KdfMethod {
                 let salt = level.generate_salt();
                 let key = level.derive_key(password.as_bytes(), salt.as_ref())?;
                 let detail = format!("?salt={}", salt.as_hex());
-                Ok((key.into(), detail))
+                Ok((key, detail))
             }
         }
     }
@@ -76,7 +71,7 @@ impl KdfMethod {
             Self::Argon2i(level) => {
                 let salt = parse_salt::<Argon2Salt>(detail)?;
                 let key = level.derive_key(password.as_bytes(), salt.as_ref())?;
-                Ok(key.into())
+                Ok(key)
             }
         }
     }

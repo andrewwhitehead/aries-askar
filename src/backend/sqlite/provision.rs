@@ -154,25 +154,24 @@ impl SqliteStoreOptions {
         }
         let conn_pool = self.pool(true).await?;
 
-        if !recreate {
-            if sqlx::query_scalar::<_, i64>(
+        if !recreate
+            && sqlx::query_scalar::<_, i64>(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='config'",
             )
             .fetch_one(&conn_pool)
             .await?
                 == 1
-            {
-                return open_db(
-                    conn_pool,
-                    Some(method),
-                    pass_key,
-                    profile,
-                    self.path.to_string(),
-                )
-                .await;
-            }
-            // no 'config' table, assume empty database
+        {
+            return open_db(
+                conn_pool,
+                Some(method),
+                pass_key,
+                profile,
+                self.path.to_string(),
+            )
+            .await;
         }
+        // else: no 'config' table, assume empty database
 
         let default_profile = profile
             .map(str::to_string)
@@ -209,7 +208,7 @@ impl SqliteStoreOptions {
             }
             Err(err) => Err(err.into()),
         }?;
-        Ok(open_db(conn_pool, method, pass_key, profile, self.path.to_string()).await?)
+        open_db(conn_pool, method, pass_key, profile, self.path.to_string()).await
     }
 
     /// Remove the Sqlite store defined by these configuration options
@@ -223,15 +222,15 @@ impl SqliteStoreOptions {
 
     /// Default options for an in-memory Sqlite store
     pub fn in_memory() -> Self {
-        let mut opts = Options::default();
-        opts.host = Cow::Borrowed(":memory:");
-        Self::new(opts).unwrap()
+        Self::from_path(":memory:")
     }
 
     /// Default options for a given Sqlite database path
     pub fn from_path(path: &str) -> Self {
-        let mut opts = Options::default();
-        opts.host = Cow::Borrowed(path);
+        let opts = Options {
+            host: Cow::Borrowed(path),
+            ..Default::default()
+        };
         Self::new(opts).unwrap()
     }
 }

@@ -20,7 +20,7 @@ use crate::{
 };
 
 /// The 'kty' value of a symmetric key JWK
-pub static JWK_KEY_TYPE: &'static str = "oct";
+pub static JWK_KEY_TYPE: &str = "oct";
 
 /// Trait implemented by supported ChaCha20 algorithms
 pub trait Chacha20Type: 'static {

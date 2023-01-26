@@ -106,6 +106,12 @@ impl<H: Digest> ConcatKDFHash<H> {
     }
 }
 
+impl<H: Digest> Default for ConcatKDFHash<H> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<D: Debug + Digest> WriteBuffer for ConcatKDFHash<D> {
     fn buffer_write(&mut self, data: &[u8]) -> Result<(), Error> {
         self.hasher.update(data);

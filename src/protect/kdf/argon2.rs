@@ -12,8 +12,8 @@ use crate::{
 
 pub use crate::crypto::kdf::argon2::SaltSize;
 
-pub const LEVEL_INTERACTIVE: &'static str = "13:int";
-pub const LEVEL_MODERATE: &'static str = "13:mod";
+pub const LEVEL_INTERACTIVE: &str = "13:int";
+pub const LEVEL_MODERATE: &str = "13:mod";
 
 /// Argon2i derivation methods
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]

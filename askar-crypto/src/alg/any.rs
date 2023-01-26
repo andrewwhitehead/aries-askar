@@ -228,12 +228,10 @@ fn generate_any<R: AllocKey>(alg: KeyAlg, rng: impl KeyMaterial) -> Result<R, Er
         #[cfg(feature = "p256")]
         KeyAlg::EcCurve(EcCurves::Secp256r1) => P256KeyPair::generate(rng).map(R::alloc_key),
         #[allow(unreachable_patterns)]
-        _ => {
-            return Err(err_msg!(
-                Unsupported,
-                "Unsupported algorithm for key generation"
-            ))
-        }
+        _ => Err(err_msg!(
+            Unsupported,
+            "Unsupported algorithm for key generation"
+        )),
     }
 }
 
@@ -265,12 +263,10 @@ fn from_public_bytes_any<R: AllocKey>(alg: KeyAlg, public: &[u8]) -> Result<R, E
             P256KeyPair::from_public_bytes(public).map(R::alloc_key)
         }
         #[allow(unreachable_patterns)]
-        _ => {
-            return Err(err_msg!(
-                Unsupported,
-                "Unsupported algorithm for public key import"
-            ))
-        }
+        _ => Err(err_msg!(
+            Unsupported,
+            "Unsupported algorithm for public key import"
+        )),
     }
 }
 
@@ -334,12 +330,10 @@ fn from_secret_bytes_any<R: AllocKey>(alg: KeyAlg, secret: &[u8]) -> Result<R, E
             P256KeyPair::from_secret_bytes(secret).map(R::alloc_key)
         }
         #[allow(unreachable_patterns)]
-        _ => {
-            return Err(err_msg!(
-                Unsupported,
-                "Unsupported algorithm for secret key import"
-            ))
-        }
+        _ => Err(err_msg!(
+            Unsupported,
+            "Unsupported algorithm for secret key import"
+        )),
     }
 }
 
@@ -385,12 +379,10 @@ where
             Chacha20Key::<XC20P>::from_key_exchange(secret, public).map(R::alloc_key)
         }
         #[allow(unreachable_patterns)]
-        _ => {
-            return Err(err_msg!(
-                Unsupported,
-                "Unsupported algorithm for key exchange"
-            ));
-        }
+        _ => Err(err_msg!(
+            Unsupported,
+            "Unsupported algorithm for key exchange"
+        )),
     }
 }
 
@@ -447,12 +439,10 @@ fn from_key_derivation_any<R: AllocKey>(
             Chacha20Key::<XC20P>::from_key_derivation(derive).map(R::alloc_key)
         }
         #[allow(unreachable_patterns)]
-        _ => {
-            return Err(err_msg!(
-                Unsupported,
-                "Unsupported algorithm for key derivation"
-            ));
-        }
+        _ => Err(err_msg!(
+            Unsupported,
+            "Unsupported algorithm for key derivation"
+        )),
     }
 }
 
@@ -484,12 +474,10 @@ fn convert_key_any<R: AllocKey>(key: &AnyKey, alg: KeyAlg) -> Result<R, Error> {
         )
         .map(R::alloc_key)?),
         #[allow(unreachable_patterns)]
-        _ => {
-            return Err(err_msg!(
-                Unsupported,
-                "Unsupported key conversion operation"
-            ))
-        }
+        _ => Err(err_msg!(
+            Unsupported,
+            "Unsupported key conversion operation"
+        )),
     }
 }
 
@@ -712,7 +700,7 @@ impl KeyExchange for AnyKey {
             #[allow(unreachable_patterns)]
             _ => {
                 let _ = out;
-                return Err(err_msg!(Unsupported, "Unsupported key exchange"));
+                Err(err_msg!(Unsupported, "Unsupported key exchange"))
             }
         }
     }

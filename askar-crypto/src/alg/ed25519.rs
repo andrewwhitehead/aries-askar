@@ -33,9 +33,9 @@ pub const SECRET_KEY_LENGTH: usize = 32;
 pub const KEYPAIR_LENGTH: usize = SECRET_KEY_LENGTH + PUBLIC_KEY_LENGTH;
 
 /// The 'kty' value of an Ed25519 JWK
-pub static JWK_KEY_TYPE: &'static str = "OKP";
+pub static JWK_KEY_TYPE: &str = "OKP";
 /// The 'crv' value of an Ed25519 JWK
-pub static JWK_CURVE: &'static str = "Ed25519";
+pub static JWK_CURVE: &str = "Ed25519";
 
 /// An Ed25519 public key or keypair
 pub struct Ed25519KeyPair {
@@ -111,7 +111,7 @@ impl Clone for Ed25519KeyPair {
                 .secret
                 .as_ref()
                 .map(|sk| SecretKey::from_bytes(&sk.as_bytes()[..]).unwrap()),
-            public: self.public.clone(),
+            public: self.public,
         }
     }
 }
@@ -278,20 +278,18 @@ impl FromJwk for Ed25519KeyPair {
         ArrayKey::<U32>::temp(|pk_arr| {
             if jwk.x.decode_base64(pk_arr)? != pk_arr.len() {
                 Err(err_msg!(InvalidKeyData))
+            } else if jwk.d.is_some() {
+                ArrayKey::<U32>::temp(|sk_arr| {
+                    if jwk.d.decode_base64(sk_arr)? != sk_arr.len() {
+                        Err(err_msg!(InvalidKeyData))
+                    } else {
+                        let kp = Ed25519KeyPair::from_secret_bytes(sk_arr)?;
+                        kp.check_public_bytes(pk_arr)?;
+                        Ok(kp)
+                    }
+                })
             } else {
-                if jwk.d.is_some() {
-                    ArrayKey::<U32>::temp(|sk_arr| {
-                        if jwk.d.decode_base64(sk_arr)? != sk_arr.len() {
-                            Err(err_msg!(InvalidKeyData))
-                        } else {
-                            let kp = Ed25519KeyPair::from_secret_bytes(sk_arr)?;
-                            kp.check_public_bytes(pk_arr)?;
-                            Ok(kp)
-                        }
-                    })
-                } else {
-                    Ed25519KeyPair::from_public_bytes(pk_arr)
-                }
+                Ed25519KeyPair::from_public_bytes(pk_arr)
             }
         })
     }
@@ -304,7 +302,7 @@ pub struct Ed25519SigningKey<'p>(ExpandedSecretKey, &'p PublicKey);
 impl Ed25519SigningKey<'_> {
     /// Sign a message with the secret key
     pub fn sign(&self, message: &[u8]) -> [u8; EDDSA_SIGNATURE_LENGTH] {
-        self.0.sign(message, &self.1).to_bytes()
+        self.0.sign(message, self.1).to_bytes()
     }
 }
 
@@ -368,7 +366,7 @@ mod tests {
         let jwk = kp
             .to_jwk_public(None)
             .expect("Error converting public key to JWK");
-        let jwk = JwkParts::from_str(&jwk).expect("Error parsing JWK output");
+        let jwk = JwkParts::try_from_str(&jwk).expect("Error parsing JWK output");
         assert_eq!(jwk.kty, JWK_KEY_TYPE);
         assert_eq!(jwk.crv, JWK_CURVE);
         assert_eq!(jwk.x, "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo");
@@ -404,9 +402,9 @@ mod tests {
         let kp = Ed25519KeyPair::from_keypair_bytes(test_keypair).unwrap();
         let sig = &kp.sign(test_msg).unwrap();
         assert_eq!(sig, test_sig);
-        assert_eq!(kp.verify_signature(test_msg, &sig[..]), true);
-        assert_eq!(kp.verify_signature(b"Not the message", &sig[..]), false);
-        assert_eq!(kp.verify_signature(test_msg, &[0u8; 64]), false);
+        assert!(kp.verify_signature(test_msg, &sig[..]));
+        assert!(!kp.verify_signature(b"Not the message", &sig[..]));
+        assert!(!kp.verify_signature(test_msg, &[0u8; 64]));
     }
 
     #[test]

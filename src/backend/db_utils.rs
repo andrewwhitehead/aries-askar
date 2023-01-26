@@ -155,7 +155,7 @@ impl<DB: ExtDatabase> DbSession<DB> {
     }
 }
 
-impl<'q, DB: ExtDatabase> Drop for DbSession<DB> {
+impl<DB: ExtDatabase> Drop for DbSession<DB> {
     fn drop(&mut self) {
         if self.txn_depth > 0 {
             self.txn_depth = 0;
@@ -436,7 +436,7 @@ pub fn replace_arg_placeholders<Q: QueryPrepare + ?Sized>(
             '$' => Some((start_offs + 2, index)),
             '0'..='9' => {
                 let mut end_offs = start_offs + 2;
-                while let Some(c) = iter.next() {
+                for c in iter {
                     if ('0'..='9').contains(&c) {
                         end_offs += 1;
                     } else {
@@ -528,7 +528,7 @@ pub fn decrypt_scan_entry(
     let tags = key.decrypt_entry_tags(
         decode_tags(enc_entry.tags).map_err(|_| err_msg!(Unexpected, "Error decoding tags"))?,
     )?;
-    Ok(Entry::new(category.to_string(), name, value, tags))
+    Ok(Entry::new(category, name, value, tags))
 }
 
 pub fn expiry_timestamp(expire_ms: i64) -> Result<Expiry, Error> {
@@ -537,6 +537,7 @@ pub fn expiry_timestamp(expire_ms: i64) -> Result<Expiry, Error> {
         .ok_or_else(|| err_msg!(Unexpected, "Invalid expiry timestamp"))
 }
 
+#[allow(clippy::type_complexity)]
 pub fn encode_tag_filter<Q: QueryPrepare>(
     tag_filter: Option<TagFilter>,
     key: &ProfileKey,
@@ -545,8 +546,8 @@ pub fn encode_tag_filter<Q: QueryPrepare>(
     if let Some(tag_filter) = tag_filter {
         let tag_query = tag_query(tag_filter.query)?;
         let mut enc = TagSqlEncoder::new(
-            |name| Ok(key.encrypt_tag_name(ProfileKey::prepare_input(name.as_bytes()))?),
-            |value| Ok(key.encrypt_tag_value(ProfileKey::prepare_input(value.as_bytes()))?),
+            |name| key.encrypt_tag_name(ProfileKey::prepare_input(name.as_bytes())),
+            |value| key.encrypt_tag_value(ProfileKey::prepare_input(value.as_bytes())),
         );
         if let Some(filter) = enc.encode_query(&tag_query)? {
             let filter = replace_arg_placeholders::<Q>(&filter, (offset as i64) + 1);
@@ -605,9 +606,9 @@ where
     Ok(query)
 }
 
-pub fn init_keys<'a>(
+pub fn init_keys(
     method: StoreKeyMethod,
-    pass_key: PassKey<'a>,
+    pass_key: PassKey<'_>,
 ) -> Result<(ProfileKey, Vec<u8>, StoreKey, String), Error> {
     if method == StoreKeyMethod::RawKey && pass_key.is_empty() {
         // disallow random key for a new database

@@ -26,7 +26,7 @@ mod key_wrap;
 pub use key_wrap::{A128Kw, A256Kw};
 
 /// The 'kty' value of a symmetric key JWK
-pub static JWK_KEY_TYPE: &'static str = "oct";
+pub static JWK_KEY_TYPE: &str = "oct";
 
 /// Trait implemented by supported AES authenticated encryption algorithms
 pub trait AesType: 'static {

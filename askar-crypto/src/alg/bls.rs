@@ -28,7 +28,7 @@ use crate::{
 };
 
 /// The 'kty' value of a BLS key JWK
-pub const JWK_KEY_TYPE: &'static str = "OKP";
+pub const JWK_KEY_TYPE: &str = "OKP";
 
 /// A BLS12-381 key pair
 #[derive(Clone, Zeroize)]
@@ -186,24 +186,21 @@ impl<Pk: BlsPublicKeyType> FromJwk for BlsKeyPair<Pk> {
         ArrayKey::<Pk::BufferSize>::temp(|pk_arr| {
             if jwk.x.decode_base64(pk_arr)? != pk_arr.len() {
                 Err(err_msg!(InvalidKeyData))
+            } else if jwk.d.is_some() {
+                ArrayKey::<U32>::temp(|sk_arr| {
+                    if jwk.d.decode_base64(sk_arr)? != sk_arr.len() {
+                        Err(err_msg!(InvalidKeyData))
+                    } else {
+                        let result = BlsKeyPair::from_secret_key(BlsSecretKey::from_bytes(sk_arr)?);
+                        result.check_public_bytes(pk_arr)?;
+                        Ok(result)
+                    }
+                })
             } else {
-                if jwk.d.is_some() {
-                    ArrayKey::<U32>::temp(|sk_arr| {
-                        if jwk.d.decode_base64(sk_arr)? != sk_arr.len() {
-                            Err(err_msg!(InvalidKeyData))
-                        } else {
-                            let result =
-                                BlsKeyPair::from_secret_key(BlsSecretKey::from_bytes(sk_arr)?);
-                            result.check_public_bytes(pk_arr)?;
-                            Ok(result)
-                        }
-                    })
-                } else {
-                    Ok(Self {
-                        secret: None,
-                        public: Pk::from_public_bytes(pk_arr)?,
-                    })
-                }
+                Ok(Self {
+                    secret: None,
+                    public: Pk::from_public_bytes(pk_arr)?,
+                })
             }
         })
     }
@@ -429,7 +426,7 @@ impl From<&BlsKeyPair<G1G2>> for BlsKeyPair<G1> {
     fn from(kp: &BlsKeyPair<G1G2>) -> Self {
         BlsKeyPair {
             secret: kp.secret.clone(),
-            public: kp.public.0.clone(),
+            public: kp.public.0,
         }
     }
 }
@@ -438,7 +435,7 @@ impl From<&BlsKeyPair<G1G2>> for BlsKeyPair<G2> {
     fn from(kp: &BlsKeyPair<G1G2>) -> Self {
         BlsKeyPair {
             secret: kp.secret.clone(),
-            public: kp.public.1.clone(),
+            public: kp.public.1,
         }
     }
 }
@@ -530,7 +527,7 @@ mod tests {
         let kp = BlsKeyPair::<G1>::from_secret_bytes(&test_pvt[..]).expect("Error creating key");
 
         let jwk = kp.to_jwk_public(None).expect("Error converting key to JWK");
-        let jwk = JwkParts::from_str(&jwk).expect("Error parsing JWK");
+        let jwk = JwkParts::try_from_str(&jwk).expect("Error parsing JWK");
         assert_eq!(jwk.kty, JWK_KEY_TYPE);
         assert_eq!(jwk.crv, G1::JWK_CURVE);
         assert_eq!(

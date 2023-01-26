@@ -47,9 +47,9 @@ pub const SECRET_KEY_LENGTH: usize = 32;
 pub const KEYPAIR_LENGTH: usize = SECRET_KEY_LENGTH + PUBLIC_KEY_LENGTH;
 
 /// The 'kty' value of an elliptic curve key JWK
-pub static JWK_KEY_TYPE: &'static str = "EC";
+pub static JWK_KEY_TYPE: &str = "EC";
 /// The 'crv' value of a K-256 key JWK
-pub static JWK_CURVE: &'static str = "secp256k1";
+pub static JWK_CURVE: &str = "secp256k1";
 
 type FieldSize = elliptic_curve::FieldSize<k256::Secp256k1>;
 
@@ -119,7 +119,7 @@ impl KeyGen for K256KeyPair {
     fn generate(mut rng: impl KeyMaterial) -> Result<Self, Error> {
         ArrayKey::<FieldSize>::temp(|buf| loop {
             rng.read_okm(buf);
-            if let Ok(key) = SecretKey::from_be_bytes(&buf) {
+            if let Ok(key) = SecretKey::from_be_bytes(buf) {
                 return Ok(Self::from_secret_key(key));
             }
         })
@@ -137,7 +137,7 @@ impl KeySecretBytes for K256KeyPair {
         if let Some(sk) = self.secret.as_ref() {
             ArrayKey::<FieldSize>::temp(|arr| {
                 ec_common::write_sk(sk, &mut arr[..]);
-                f(Some(&arr))
+                f(Some(arr))
             })
         } else {
             f(None)
@@ -310,7 +310,7 @@ impl KeyExchange for K256KeyPair {
         match self.secret.as_ref() {
             Some(sk) => {
                 let xk = diffie_hellman(sk.to_nonzero_scalar(), other.public.as_affine());
-                out.buffer_write(xk.as_bytes())?;
+                out.buffer_write(xk.as_bytes().as_ref())?;
                 Ok(())
             }
             None => Err(err_msg!(MissingSecretKey)),
@@ -343,7 +343,7 @@ mod tests {
         let sk = K256KeyPair::from_secret_bytes(&test_pvt).expect("Error creating signing key");
 
         let jwk = sk.to_jwk_public(None).expect("Error converting key to JWK");
-        let jwk = JwkParts::from_str(&jwk).expect("Error parsing JWK");
+        let jwk = JwkParts::try_from_str(&jwk).expect("Error parsing JWK");
         assert_eq!(jwk.kty, JWK_KEY_TYPE);
         assert_eq!(jwk.crv, JWK_CURVE);
         assert_eq!(jwk.x, test_pub_b64.0);
@@ -381,9 +381,9 @@ mod tests {
         let kp = K256KeyPair::from_secret_bytes(&test_pvt).unwrap();
         let sig = kp.sign(&test_msg[..]).unwrap();
         assert_eq!(sig, &test_sig[..]);
-        assert_eq!(kp.verify_signature(&test_msg[..], &sig[..]), true);
-        assert_eq!(kp.verify_signature(b"Not the message", &sig[..]), false);
-        assert_eq!(kp.verify_signature(&test_msg[..], &[0u8; 64]), false);
+        assert!(kp.verify_signature(&test_msg[..], &sig[..]));
+        assert!(!kp.verify_signature(b"Not the message", &sig[..]));
+        assert!(!kp.verify_signature(&test_msg[..], &[0u8; 64]));
     }
 
     #[test]
