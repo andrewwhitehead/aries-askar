@@ -81,6 +81,7 @@ optional = true
 [profile.release]
 codegen-units = 1
 lto = true
+panic = "abort"
 
 [[test]]
 name = "backends"
