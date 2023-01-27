@@ -109,7 +109,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Install Rust toolchain
+      - if: "!matrix.use_cross"
+        name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.58.0"
@@ -311,6 +312,7 @@ jobs:
           echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" >> .npmrc
           echo "registry=https://registry.npmjs.org/" >> .npmrc
           echo "always-auth=true" >> .npmrc
+
       # TODO: this will currently publish the version as defined in the package.json. If the version already
       # exists on NPM it will skip the publishing. This means if a new version is released, but the version hasn't been
       # updated in the package.json files yet, it won't publish to NPM (which is kinda nice). We should however add a check
@@ -331,13 +333,18 @@ jobs:
           [aarch64-apple-ios, aarch64-apple-ios-sim, x86_64-apple-ios]
 
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v3
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: stable
+          toolchain: "1.58.0"
           targets: ${{ matrix.architecture }}
-      - run: cargo build --target ${{matrix.architecture}} --release
+
+      - name: Build library
+        run: cargo build --lib --target ${{matrix.architecture}} --release
+
       - name: Save library
         uses: actions/upload-artifact@v3
         with:
@@ -358,10 +365,14 @@ jobs:
           ]
 
     steps:
-      - uses: actions/checkout@v3
-      - run: |
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Build library
+        run: |
           cargo install --bins --git https://github.com/rust-embedded/cross --tag v0.2.4 cross
-          cross build --release --target ${{matrix.architecture}}
+          cross build --lib --release --target ${{matrix.architecture}}
+
       - name: Save library
         uses: actions/upload-artifact@v3
         with:
