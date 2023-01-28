@@ -32,7 +32,9 @@ use crate::{
 };
 
 const COUNT_QUERY: &str = "SELECT COUNT(*) FROM items i
-    WHERE profile_id = $1 AND kind = $2 AND category = $3
+    WHERE profile_id = $1
+    AND (kind = $2 OR $2 IS NULL)
+    AND (category = $3 OR $3 IS NULL)
     AND (expiry IS NULL OR expiry > CURRENT_TIMESTAMP)";
 const DELETE_QUERY: &str = "DELETE FROM items
     WHERE profile_id = $1 AND kind = $2 AND category = $3 AND name = $4";
@@ -56,14 +58,18 @@ const INSERT_QUERY: &str = "INSERT INTO items (profile_id, kind, category, name,
 const UPDATE_QUERY: &str = "UPDATE items SET value=$5, expiry=$6
     WHERE profile_id=$1 AND kind=$2 AND category=$3 AND name=$4
     RETURNING id";
-const SCAN_QUERY: &str = "SELECT id, name, value,
+const SCAN_QUERY: &str = "SELECT id, category, name, value,
     (SELECT ARRAY_TO_STRING(ARRAY_AGG(it.plaintext || ':'
         || ENCODE(it.name, 'hex') || ':' || ENCODE(it.value, 'hex')), ',')
         FROM items_tags it WHERE it.item_id = i.id) tags
-    FROM items i WHERE profile_id = $1 AND kind = $2 AND category = $3
+    FROM items i WHERE profile_id = $1
+    AND (kind = $2 OR $2 IS NULL)
+    AND (category = $3 OR $3 IS NULL)
     AND (expiry IS NULL OR expiry > CURRENT_TIMESTAMP)";
 const DELETE_ALL_QUERY: &str = "DELETE FROM items i
-    WHERE i.profile_id = $1 AND i.kind = $2 AND i.category = $3";
+    WHERE profile_id = $1
+    AND (kind = $2 OR $2 IS NULL)
+    AND (category = $3 OR $3 IS NULL)";
 const TAG_INSERT_QUERY: &str = "INSERT INTO items_tags
     (item_id, name, value, plaintext) VALUES ($1, $2, $3, $4)";
 const TAG_DELETE_QUERY: &str = "DELETE FROM items_tags
@@ -206,8 +212,8 @@ impl Backend for PostgresStore {
     fn scan(
         &self,
         profile: Option<String>,
-        kind: EntryKind,
-        category: String,
+        kind: Option<EntryKind>,
+        category: Option<String>,
         tag_filter: Option<TagFilter>,
         offset: Option<i64>,
         limit: Option<i64>,
@@ -266,22 +272,24 @@ impl Debug for PostgresStore {
 impl QueryBackend for DbSession<Postgres> {
     fn count<'q>(
         &'q mut self,
-        kind: EntryKind,
-        category: &'q str,
+        kind: Option<EntryKind>,
+        category: Option<&'q str>,
         tag_filter: Option<TagFilter>,
     ) -> BoxFuture<'q, Result<i64, Error>> {
-        let category = ProfileKey::prepare_input(category.as_bytes());
+        let enc_category = category.map(|c| ProfileKey::prepare_input(c.as_bytes()));
 
         Box::pin(async move {
             let (profile_id, key) = acquire_key(&mut *self).await?;
             let mut params = QueryParams::new();
             params.push(profile_id);
-            params.push(kind as i16);
+            params.push(kind.map(|k| k as i16));
             let (enc_category, tag_filter) = unblock({
                 let params_len = params.len() + 1; // plus category
                 move || {
                     Result::<_, Error>::Ok((
-                        key.encrypt_entry_category(category)?,
+                        enc_category
+                            .map(|c| key.encrypt_entry_category(c))
+                            .transpose()?,
                         encode_tag_filter::<PostgresStore>(tag_filter, &key, params_len)?,
                     ))
                 }
@@ -359,13 +367,13 @@ impl QueryBackend for DbSession<Postgres> {
 
     fn fetch_all<'q>(
         &'q mut self,
-        kind: EntryKind,
-        category: &'q str,
+        kind: Option<EntryKind>,
+        category: Option<&'q str>,
         tag_filter: Option<TagFilter>,
         limit: Option<i64>,
         for_update: bool,
     ) -> BoxFuture<'q, Result<Vec<Entry>, Error>> {
-        let category = category.to_string();
+        let category = category.map(|c| c.to_string());
         Box::pin(async move {
             let for_update = for_update && self.in_transaction();
             let mut active = self.borrow_mut();
@@ -392,22 +400,24 @@ impl QueryBackend for DbSession<Postgres> {
 
     fn remove_all<'q>(
         &'q mut self,
-        kind: EntryKind,
-        category: &'q str,
+        kind: Option<EntryKind>,
+        category: Option<&'q str>,
         tag_filter: Option<TagFilter>,
     ) -> BoxFuture<'q, Result<i64, Error>> {
-        let category = ProfileKey::prepare_input(category.as_bytes());
+        let enc_category = category.map(|c| ProfileKey::prepare_input(c.as_bytes()));
 
         Box::pin(async move {
             let (profile_id, key) = acquire_key(&mut *self).await?;
             let mut params = QueryParams::new();
             params.push(profile_id);
-            params.push(kind as i16);
+            params.push(kind.map(|k| k as i16));
             let (enc_category, tag_filter) = unblock({
                 let params_len = params.len() + 1; // plus category
                 move || {
                     Result::<_, Error>::Ok((
-                        key.encrypt_entry_category(category)?,
+                        enc_category
+                            .map(|c| key.encrypt_entry_category(c))
+                            .transpose()?,
                         encode_tag_filter::<PostgresStore>(tag_filter, &key, params_len)?,
                     ))
                 }
@@ -650,8 +660,8 @@ fn perform_scan(
     mut active: DbSessionRef<'_, Postgres>,
     profile_id: ProfileId,
     key: Arc<ProfileKey>,
-    kind: EntryKind,
-    category: String,
+    kind: Option<EntryKind>,
+    category: Option<String>,
     tag_filter: Option<TagFilter>,
     offset: Option<i64>,
     limit: Option<i64>,
@@ -660,14 +670,16 @@ fn perform_scan(
     try_stream! {
         let mut params = QueryParams::new();
         params.push(profile_id);
-        params.push(kind as i16);
+        params.push(kind.map(|k| k as i16));
         let (enc_category, tag_filter) = unblock({
             let key = key.clone();
-            let category = ProfileKey::prepare_input(category.as_bytes());
+            let enc_category = category.map(|c| ProfileKey::prepare_input(c.as_bytes()));
             let params_len = params.len() + 1; // plus category
             move || {
                 Result::<_, Error>::Ok((
-                    key.encrypt_entry_category(category)?,
+                    enc_category
+                        .map(|c| key.encrypt_entry_category(c))
+                        .transpose()?,
                     encode_tag_filter::<PostgresStore>(tag_filter, &key, params_len)?
                 ))
             }
@@ -682,9 +694,9 @@ fn perform_scan(
         let mut acquired = acquire_session(&mut *active).await?;
         let mut rows = sqlx::query_with(query.as_str(), params).fetch(acquired.connection_mut());
         while let Some(row) = rows.try_next().await? {
-            let tags = row.try_get::<Option<String>, _>(3)?.map(String::into_bytes).unwrap_or_default();
+            let tags = row.try_get::<Option<String>, _>(4)?.map(String::into_bytes).unwrap_or_default();
             batch.push(EncScanEntry {
-                name: row.try_get(1)?, value: row.try_get(2)?, tags
+                category: row.try_get(1)?, name: row.try_get(2)?, value: row.try_get(3)?, tags
             });
             if batch.len() == PAGE_SIZE {
                 yield batch.split_off(0);

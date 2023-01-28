@@ -90,7 +90,7 @@ pub async fn db_insert_fetch(db: impl TestStore) {
     assert_eq!(row, test_row);
 
     let rows = conn
-        .fetch_all(&test_row.category, None, None, false)
+        .fetch_all(Some(&test_row.category), None, None, false)
         .await
         .expect(ERR_FETCH_ALL);
     assert_eq!(rows.len(), 1);
@@ -224,11 +224,17 @@ pub async fn db_count(db: impl TestStore) {
     }
 
     let tag_filter = None;
-    let count = conn.count(&category, tag_filter).await.expect(ERR_COUNT);
+    let count = conn
+        .count(Some(&category), tag_filter)
+        .await
+        .expect(ERR_COUNT);
     assert_eq!(count, 1);
 
     let tag_filter = Some(TagFilter::is_eq("sometag", "someval"));
-    let count = conn.count(&category, tag_filter).await.expect(ERR_COUNT);
+    let count = conn
+        .count(Some(&category), tag_filter)
+        .await
+        .expect(ERR_COUNT);
     assert_eq!(count, 0);
 }
 
@@ -257,7 +263,7 @@ pub async fn db_count_exist(db: impl TestStore) {
 
     assert_eq!(
         conn.count(
-            &test_row.category,
+            Some(&test_row.category),
             Some(TagFilter::exist(vec!["enc".to_string()]))
         )
         .await
@@ -267,7 +273,7 @@ pub async fn db_count_exist(db: impl TestStore) {
 
     assert_eq!(
         conn.count(
-            &test_row.category,
+            Some(&test_row.category),
             Some(TagFilter::exist(vec!["~plain".to_string()]))
         )
         .await
@@ -277,7 +283,7 @@ pub async fn db_count_exist(db: impl TestStore) {
 
     assert_eq!(
         conn.count(
-            &test_row.category,
+            Some(&test_row.category),
             Some(TagFilter::exist(vec!["~enc".to_string()]))
         )
         .await
@@ -287,7 +293,7 @@ pub async fn db_count_exist(db: impl TestStore) {
 
     assert_eq!(
         conn.count(
-            &test_row.category,
+            Some(&test_row.category),
             Some(TagFilter::exist(vec!["plain".to_string()]))
         )
         .await
@@ -297,7 +303,7 @@ pub async fn db_count_exist(db: impl TestStore) {
 
     assert_eq!(
         conn.count(
-            &test_row.category,
+            Some(&test_row.category),
             Some(TagFilter::exist(vec!["other".to_string()]))
         )
         .await
@@ -307,7 +313,7 @@ pub async fn db_count_exist(db: impl TestStore) {
 
     assert_eq!(
         conn.count(
-            &test_row.category,
+            Some(&test_row.category),
             Some(TagFilter::exist(vec![
                 "enc".to_string(),
                 "other".to_string()
@@ -320,7 +326,7 @@ pub async fn db_count_exist(db: impl TestStore) {
 
     assert_eq!(
         conn.count(
-            &test_row.category,
+            Some(&test_row.category),
             Some(TagFilter::all_of(vec![
                 TagFilter::exist(vec!["enc".to_string()]),
                 TagFilter::exist(vec!["~plain".to_string()])
@@ -333,7 +339,7 @@ pub async fn db_count_exist(db: impl TestStore) {
 
     assert_eq!(
         conn.count(
-            &test_row.category,
+            Some(&test_row.category),
             Some(TagFilter::any_of(vec![
                 TagFilter::exist(vec!["~enc".to_string()]),
                 TagFilter::exist(vec!["~plain".to_string()])
@@ -346,7 +352,7 @@ pub async fn db_count_exist(db: impl TestStore) {
 
     assert_eq!(
         conn.count(
-            &test_row.category,
+            Some(&test_row.category),
             Some(TagFilter::all_of(vec![
                 TagFilter::exist(vec!["~enc".to_string()]),
                 TagFilter::exist(vec!["~plain".to_string()])
@@ -359,7 +365,7 @@ pub async fn db_count_exist(db: impl TestStore) {
 
     assert_eq!(
         conn.count(
-            &test_row.category,
+            Some(&test_row.category),
             Some(TagFilter::negate(TagFilter::exist(vec![
                 "enc".to_string(),
                 "other".to_string()
@@ -402,7 +408,7 @@ pub async fn db_scan(db: impl TestStore) {
     let offset = None;
     let limit = None;
     let mut scan = db
-        .scan(None, category.clone(), tag_filter, offset, limit)
+        .scan(None, Some(category.clone()), tag_filter, offset, limit)
         .await
         .expect(ERR_SCAN);
     let rows = scan.fetch_next().await.expect(ERR_SCAN_NEXT);
@@ -412,7 +418,7 @@ pub async fn db_scan(db: impl TestStore) {
 
     let tag_filter = Some(TagFilter::is_eq("sometag", "someval"));
     let mut scan = db
-        .scan(None, category.clone(), tag_filter, offset, limit)
+        .scan(None, Some(category.clone()), tag_filter, offset, limit)
         .await
         .expect(ERR_SCAN);
     let rows = scan.fetch_next().await.expect(ERR_SCAN_NEXT);
@@ -468,7 +474,7 @@ pub async fn db_remove_all(db: impl TestStore) {
     // depends on the backend. just checking that no SQL errors occur for now.
     let removed = conn
         .remove_all(
-            "category",
+            Some("category"),
             Some(TagFilter::all_of(vec![
                 TagFilter::is_eq("t1", "del"),
                 TagFilter::is_eq("~t2", "del"),
@@ -637,7 +643,7 @@ pub async fn db_txn_fetch_for_update(db: impl TestStore) {
     assert_eq!(row, test_row);
 
     let rows = conn
-        .fetch_all(&test_row.category, None, Some(2), true)
+        .fetch_all(Some(&test_row.category), None, Some(2), true)
         .await
         .expect(ERR_FETCH_ALL);
     assert_eq!(rows.len(), 1);

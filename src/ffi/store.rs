@@ -439,7 +439,7 @@ pub extern "C" fn askar_scan_start(
         trace!("Scan store start");
         let cb = cb.ok_or_else(|| err_msg!("No callback provided"))?;
         let profile = profile.into_opt_string();
-        let category = category.into_opt_string().ok_or_else(|| err_msg!("Category not provided"))?;
+        let category = category.into_opt_string();
         let tag_filter = tag_filter.as_opt_str().map(TagFilter::from_str).transpose()?;
         let cb = EnsureCallback::new(move |result: Result<ScanHandle,Error>|
             match result {
@@ -558,7 +558,7 @@ pub extern "C" fn askar_session_count(
     catch_err! {
         trace!("Count from store");
         let cb = cb.ok_or_else(|| err_msg!("No callback provided"))?;
-        let category = category.into_opt_string().ok_or_else(|| err_msg!("Category not provided"))?;
+        let category = category.into_opt_string();
         let tag_filter = tag_filter.as_opt_str().map(TagFilter::from_str).transpose()?;
         let cb = EnsureCallback::new(move |result: Result<i64,Error>|
             match result {
@@ -569,7 +569,7 @@ pub extern "C" fn askar_session_count(
         spawn_ok(async move {
             let result = async {
                 let mut session = FFI_SESSIONS.borrow(handle).await?;
-                let count = session.count(&category, tag_filter).await;
+                let count = session.count(category.as_deref(), tag_filter).await;
                 count
             }.await;
             cb.resolve(result);
@@ -627,7 +627,7 @@ pub extern "C" fn askar_session_fetch_all(
     catch_err! {
         trace!("Count from store");
         let cb = cb.ok_or_else(|| err_msg!("No callback provided"))?;
-        let category = category.into_opt_string().ok_or_else(|| err_msg!("Category not provided"))?;
+        let category = category.into_opt_string();
         let tag_filter = tag_filter.as_opt_str().map(TagFilter::from_str).transpose()?;
         let limit = if limit < 0 { None } else {Some(limit)};
         let cb = EnsureCallback::new(move |result|
@@ -642,7 +642,7 @@ pub extern "C" fn askar_session_fetch_all(
         spawn_ok(async move {
             let result = async {
                 let mut session = FFI_SESSIONS.borrow(handle).await?;
-                let found = session.fetch_all(&category, tag_filter, limit, for_update != 0).await;
+                let found = session.fetch_all(category.as_deref(), tag_filter, limit, for_update != 0).await;
                 found
             }.await;
             cb.resolve(result);
@@ -662,7 +662,7 @@ pub extern "C" fn askar_session_remove_all(
     catch_err! {
         trace!("Count from store");
         let cb = cb.ok_or_else(|| err_msg!("No callback provided"))?;
-        let category = category.into_opt_string().ok_or_else(|| err_msg!("Category not provided"))?;
+        let category = category.into_opt_string();
         let tag_filter = tag_filter.as_opt_str().map(TagFilter::from_str).transpose()?;
         let cb = EnsureCallback::new(move |result|
             match result {
@@ -675,7 +675,7 @@ pub extern "C" fn askar_session_remove_all(
         spawn_ok(async move {
             let result = async {
                 let mut session = FFI_SESSIONS.borrow(handle).await?;
-                let removed = session.remove_all(&category, tag_filter).await;
+                let removed = session.remove_all(category.as_deref(), tag_filter).await;
                 removed
             }.await;
             cb.resolve(result);

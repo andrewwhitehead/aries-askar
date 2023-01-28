@@ -195,7 +195,7 @@ async def session_start(
 
 
 async def session_count(
-    handle: SessionHandle, category: str, tag_filter: Union[str, dict] = None
+    handle: SessionHandle, category: str = None, tag_filter: Union[str, dict] = None
 ) -> int:
     """Count rows in the Store."""
     return int(
@@ -227,7 +227,7 @@ async def session_fetch(
 
 async def session_fetch_all(
     handle: SessionHandle,
-    category: str,
+    category: str = None,
     tag_filter: Union[str, dict] = None,
     limit: int = None,
     for_update: bool = False,
@@ -247,7 +247,7 @@ async def session_fetch_all(
 
 async def session_remove_all(
     handle: SessionHandle,
-    category: str,
+    category: str = None,
     tag_filter: Union[str, dict] = None,
 ) -> int:
     """Remove all matching rows in the Store."""
@@ -373,7 +373,7 @@ async def session_remove_key(handle: SessionHandle, name: str):
 async def scan_start(
     handle: StoreHandle,
     profile: Optional[str],
-    category: str,
+    category: str = None,
     tag_filter: Union[str, dict] = None,
     offset: int = None,
     limit: int = None,

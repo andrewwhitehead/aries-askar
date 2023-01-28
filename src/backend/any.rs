@@ -68,8 +68,8 @@ impl Backend for AnyBackend {
     fn scan(
         &self,
         profile: Option<String>,
-        kind: EntryKind,
-        category: String,
+        kind: Option<EntryKind>,
+        category: Option<String>,
         tag_filter: Option<TagFilter>,
         offset: Option<i64>,
         limit: Option<i64>,
@@ -131,8 +131,8 @@ pub enum AnyQueryBackend {
 impl QueryBackend for AnyQueryBackend {
     fn count<'q>(
         &'q mut self,
-        kind: EntryKind,
-        category: &'q str,
+        kind: Option<EntryKind>,
+        category: Option<&'q str>,
         tag_filter: Option<TagFilter>,
     ) -> BoxFuture<'q, Result<i64, Error>> {
         match self {
@@ -166,8 +166,8 @@ impl QueryBackend for AnyQueryBackend {
 
     fn fetch_all<'q>(
         &'q mut self,
-        kind: EntryKind,
-        category: &'q str,
+        kind: Option<EntryKind>,
+        category: Option<&'q str>,
         tag_filter: Option<TagFilter>,
         limit: Option<i64>,
         for_update: bool,
@@ -189,8 +189,8 @@ impl QueryBackend for AnyQueryBackend {
 
     fn remove_all<'q>(
         &'q mut self,
-        kind: EntryKind,
-        category: &'q str,
+        kind: Option<EntryKind>,
+        category: Option<&'q str>,
         tag_filter: Option<TagFilter>,
     ) -> BoxFuture<'q, Result<i64, Error>> {
         match self {

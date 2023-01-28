@@ -123,6 +123,18 @@ async def test_scan(store: Store):
     ).fetch_all()
     assert len(rows) == 1 and dict(rows[0]) == TEST_ENTRY
 
+    # Scan entries with non-matching category
+    rows = await store.scan("not the category").fetch_all()
+    assert len(rows) == 0
+
+    # Scan entries with non-matching tag filter
+    rows = await store.scan(TEST_ENTRY["category"], {"~plaintag": "X"}).fetch_all()
+    assert len(rows) == 0
+
+    # Scan entries with no category filter
+    rows = await store.scan(None, {"~plaintag": "a", "enctag": "b"}).fetch_all()
+    assert len(rows) == 1 and dict(rows[0]) == TEST_ENTRY
+
 
 @mark.asyncio
 async def test_txn_basic(store: Store):

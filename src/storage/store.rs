@@ -59,7 +59,7 @@ impl<B: Backend> Store<B> {
     pub async fn scan(
         &self,
         profile: Option<String>,
-        category: String,
+        category: Option<String>,
         tag_filter: Option<TagFilter>,
         offset: Option<i64>,
         limit: Option<i64>,
@@ -67,7 +67,7 @@ impl<B: Backend> Store<B> {
         self.0
             .scan(
                 profile,
-                EntryKind::Item,
+                Some(EntryKind::Item),
                 category,
                 tag_filter,
                 offset,
@@ -111,10 +111,12 @@ impl<Q: QueryBackend> Session<Q> {
     /// Count the number of entries for a given record category
     pub async fn count(
         &mut self,
-        category: &str,
+        category: Option<&str>,
         tag_filter: Option<TagFilter>,
     ) -> Result<i64, Error> {
-        self.0.count(EntryKind::Item, category, tag_filter).await
+        self.0
+            .count(Some(EntryKind::Item), category, tag_filter)
+            .await
     }
 
     /// Retrieve the current record at `(category, name)`.
@@ -139,13 +141,19 @@ impl<Q: QueryBackend> Session<Q> {
     /// requirements
     pub async fn fetch_all(
         &mut self,
-        category: &str,
+        category: Option<&str>,
         tag_filter: Option<TagFilter>,
         limit: Option<i64>,
         for_update: bool,
     ) -> Result<Vec<Entry>, Error> {
         self.0
-            .fetch_all(EntryKind::Item, category, tag_filter, limit, for_update)
+            .fetch_all(
+                Some(EntryKind::Item),
+                category,
+                tag_filter,
+                limit,
+                for_update,
+            )
             .await
     }
 
@@ -211,11 +219,11 @@ impl<Q: QueryBackend> Session<Q> {
     /// Remove all records in the store matching a given `category` and `tag_filter`
     pub async fn remove_all(
         &mut self,
-        category: &str,
+        category: Option<&str>,
         tag_filter: Option<TagFilter>,
     ) -> Result<i64, Error> {
         self.0
-            .remove_all(EntryKind::Item, category, tag_filter)
+            .remove_all(Some(EntryKind::Item), category, tag_filter)
             .await
     }
 
@@ -350,8 +358,8 @@ impl<Q: QueryBackend> Session<Q> {
         let rows = self
             .0
             .fetch_all(
-                EntryKind::Kms,
-                KmsCategory::CryptoKey.as_str(),
+                Some(EntryKind::Kms),
+                Some(KmsCategory::CryptoKey.as_str()),
                 tag_filter,
                 limit,
                 for_update,

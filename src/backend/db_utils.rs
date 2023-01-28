@@ -252,6 +252,7 @@ impl<'q, DB: ExtDatabase> DbSessionActive<'q, DB> {
         self.inner.connection_mut().unwrap()
     }
 
+    #[allow(unused)]
     pub fn in_transaction(&self) -> bool {
         self.inner.in_transaction()
     }
@@ -344,6 +345,7 @@ where
 }
 
 pub struct EncScanEntry {
+    pub category: Vec<u8>,
     pub name: Vec<u8>,
     pub value: Vec<u8>,
     pub tags: Vec<u8>,
@@ -507,22 +509,26 @@ pub(crate) fn decode_tags(tags: Vec<u8>) -> Result<Vec<EncEntryTag>, ()> {
 }
 
 pub fn decrypt_scan_batch(
-    category: String,
+    category: Option<String>,
     enc_rows: Vec<EncScanEntry>,
     key: &ProfileKey,
 ) -> Result<Vec<Entry>, Error> {
     let mut batch = Vec::with_capacity(enc_rows.len());
     for enc_entry in enc_rows {
-        batch.push(decrypt_scan_entry(category.clone(), enc_entry, key)?);
+        batch.push(decrypt_scan_entry(category.as_deref(), enc_entry, key)?);
     }
     Ok(batch)
 }
 
 pub fn decrypt_scan_entry(
-    category: String,
+    category: Option<&str>,
     enc_entry: EncScanEntry,
     key: &ProfileKey,
 ) -> Result<Entry, Error> {
+    let category = match category {
+        Some(c) => c.to_owned(),
+        None => key.decrypt_entry_category(enc_entry.category)?,
+    };
     let name = key.decrypt_entry_name(enc_entry.name)?;
     let value = key.decrypt_entry_value(category.as_bytes(), name.as_bytes(), enc_entry.value)?;
     let tags = key.decrypt_entry_tags(

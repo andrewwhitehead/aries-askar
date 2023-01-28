@@ -243,7 +243,7 @@ class Scan:
         self,
         store: "Store",
         profile: Optional[str],
-        category: str,
+        category: Optional[str],
         tag_filter: Union[str, dict] = None,
         offset: int = None,
         limit: int = None,
@@ -395,7 +395,7 @@ class Store:
 
     def scan(
         self,
-        category: str,
+        category: str = None,
         tag_filter: Union[str, dict] = None,
         offset: int = None,
         limit: int = None,
@@ -447,7 +447,9 @@ class Session:
         """Accessor for the SessionHandle instance."""
         return self._handle
 
-    async def count(self, category: str, tag_filter: Union[str, dict] = None) -> int:
+    async def count(
+        self, category: str = None, tag_filter: Union[str, dict] = None
+    ) -> int:
         """Count the records matching a category and tag filter."""
         if not self._handle:
             raise AskarError(AskarErrorCode.WRAPPER, "Cannot count from closed session")
@@ -466,7 +468,7 @@ class Session:
 
     async def fetch_all(
         self,
-        category: str,
+        category: str = None,
         tag_filter: Union[str, dict] = None,
         limit: int = None,
         *,
@@ -531,7 +533,7 @@ class Session:
 
     async def remove_all(
         self,
-        category: str,
+        category: str = None,
         tag_filter: Union[str, dict] = None,
     ) -> int:
         """Remove all records matching a category and tag filter."""
