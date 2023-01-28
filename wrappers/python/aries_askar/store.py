@@ -59,8 +59,8 @@ class Entry:
         """Accessor for the entry tags."""
         return self._list.get_tags(self._pos)
 
-    def keys(self):
-        """Mapping keys."""
+    def keys(self) -> Sequence[str]:
+        """Accessor for the list of mapping keys."""
         return Entry._KEYS
 
     def __getitem__(self, key):
@@ -68,6 +68,10 @@ class Entry:
         if key in Entry._KEYS:
             return getattr(self, key)
         return KeyError
+
+    def __hasitem__(self, key) -> bool:
+        """Check if a key is defined."""
+        return key in Entry._KEYS
 
     def __repr__(self) -> str:
         """Format entry handle as a string."""
@@ -95,27 +99,35 @@ class EntryList:
         return self._handle
 
     def __getitem__(self, index) -> Entry:
+        """Fetch an entry by index."""
         if not isinstance(index, int) or index < 0 or index >= self._len:
             return IndexError()
         return Entry(self._handle, index)
 
     def __iter__(self):
+        """Iterate the entry list."""
         return IterEntryList(self)
 
     def __len__(self) -> int:
+        """Accessor for the length of the list."""
         return self._len
 
     def __repr__(self) -> str:
+        """Format entry list as a string."""
         return f"<EntryList(handle={self._handle}, pos={self._pos}, len={self._len})>"
 
 
 class IterEntryList:
+    """Iterator for the records in an entry list."""
+
     def __init__(self, list: EntryList):
+        """Create a new entry list iterator."""
         self._handle = list._handle
         self._len = list._len
         self._pos = 0
 
     def __next__(self):
+        """Fetch the next entry from the iterator."""
         if self._pos < self._len:
             entry = Entry(self._handle, self._pos)
             self._pos += 1
@@ -185,29 +197,37 @@ class KeyEntryList:
         return self._handle
 
     def __getitem__(self, index) -> KeyEntry:
+        """Fetch the key entry at a specific index."""
         if not isinstance(index, int) or index < 0 or index >= self._len:
             return IndexError()
         return KeyEntry(self._handle, index)
 
     def __iter__(self):
+        """Create an iterator over the key entry list."""
         return IterKeyEntryList(self)
 
     def __len__(self) -> int:
+        """Accessor for the number of key entries."""
         return self._len
 
     def __repr__(self) -> str:
+        """Format this key entry list as a string."""
         return (
             f"<KeyEntryList(handle={self._handle}, pos={self._pos}, len={self._len})>"
         )
 
 
 class IterKeyEntryList:
+    """Iterator for a list of key entries."""
+
     def __init__(self, list: KeyEntryList):
+        """Create a new key entry iterator."""
         self._handle = list._handle
         self._len = list._len
         self._pos = 0
 
     def __next__(self):
+        """Fetch the next key entry from the iterator."""
         if self._pos < self._len:
             entry = KeyEntry(self._handle, self._pos)
             self._pos += 1
@@ -223,7 +243,7 @@ class Scan:
         self,
         store: "Store",
         profile: Optional[str],
-        category: Union[str, bytes],
+        category: str,
         tag_filter: Union[str, dict] = None,
         offset: int = None,
         limit: int = None,
@@ -239,9 +259,11 @@ class Scan:
         return self._handle
 
     def __aiter__(self):
+        """Async iterator for the scan results."""
         return self
 
     async def __anext__(self):
+        """Fetch the next scan result during async iteration."""
         if self._handle is None:
             (store, profile, category, tag_filter, offset, limit) = self._params
             self._params = None
@@ -264,12 +286,14 @@ class Scan:
             self._buffer = iter(EntryList(list_handle)) if list_handle else None
 
     async def fetch_all(self) -> Sequence[Entry]:
+        """Fetch all remaining rows."""
         rows = []
         async for row in self:
             rows.append(row)
         return rows
 
     def __repr__(self) -> str:
+        """Format the scan instance as a string."""
         return f"<Scan(handle={self._handle})>"
 
 
@@ -307,6 +331,7 @@ class Store:
         profile: str = None,
         recreate: bool = False,
     ) -> "Store":
+        """Provision a new store."""
         return Store(
             await bindings.store_provision(
                 uri, key_method, pass_key, profile, recreate
@@ -323,29 +348,41 @@ class Store:
         *,
         profile: str = None,
     ) -> "Store":
+        """Open an existing store."""
         return Store(await bindings.store_open(uri, key_method, pass_key, profile), uri)
 
     @classmethod
     async def remove(cls, uri: str) -> bool:
+        """Remove an existing store."""
         return await bindings.store_remove(uri)
 
     async def __aenter__(self) -> "Session":
+        """Start a new session when used as an async context."""
         if not self._opener:
             self._opener = OpenSession(self._handle, None, False)
         return await self._opener.__aenter__()
 
     async def __aexit__(self, exc_type, exc, tb):
+        """Async context termination."""
         opener = self._opener
         self._opener = None
         return await opener.__aexit__(exc_type, exc, tb)
 
     async def create_profile(self, name: str = None) -> str:
+        """
+        Create a new profile in the store.
+
+        Returns the name of the profile, which is automatically
+        generated if not provided.
+        """
         return await bindings.store_create_profile(self._handle, name)
 
     async def get_profile_name(self) -> str:
+        """Accessor for the currently defined profile name."""
         return await bindings.store_get_profile_name(self._handle)
 
     async def remove_profile(self, name: str) -> bool:
+        """Remove a profile from the store."""
         return await bindings.store_remove_profile(self._handle, name)
 
     async def rekey(
@@ -353,6 +390,7 @@ class Store:
         key_method: str = None,
         pass_key: str = None,
     ):
+        """Update the master encryption key of the store."""
         await bindings.store_rekey(self._handle, key_method, pass_key)
 
     def scan(
@@ -363,12 +401,15 @@ class Store:
         limit: int = None,
         profile: str = None,
     ) -> Scan:
+        """Start a new record scan."""
         return Scan(self, profile, category, tag_filter, offset, limit)
 
     def session(self, profile: str = None) -> "OpenSession":
+        """Open a new session on the store without starting a transaction."""
         return OpenSession(self._handle, profile, False)
 
     def transaction(self, profile: str = None) -> "OpenSession":
+        """Open a new transactional session on the store."""
         return OpenSession(self._handle, profile, True)
 
     async def close(self, *, remove: bool = False) -> bool:
@@ -383,6 +424,7 @@ class Store:
             return False
 
     def __repr__(self) -> str:
+        """Format the store instance as a string."""
         return f"<Store(handle={self._handle})>"
 
 
@@ -406,6 +448,7 @@ class Session:
         return self._handle
 
     async def count(self, category: str, tag_filter: Union[str, dict] = None) -> int:
+        """Count the records matching a category and tag filter."""
         if not self._handle:
             raise AskarError(AskarErrorCode.WRAPPER, "Cannot count from closed session")
         return await bindings.session_count(self._handle, category, tag_filter)
@@ -413,6 +456,7 @@ class Session:
     async def fetch(
         self, category: str, name: str, *, for_update: bool = False
     ) -> Optional[Entry]:
+        """Fetch a record from the store by category and name."""
         if not self._handle:
             raise AskarError(AskarErrorCode.WRAPPER, "Cannot fetch from closed session")
         result_handle = await bindings.session_fetch(
@@ -428,6 +472,7 @@ class Session:
         *,
         for_update: bool = False,
     ) -> EntryList:
+        """Fetch all records matching a category and tag filter."""
         if not self._handle:
             raise AskarError(AskarErrorCode.WRAPPER, "Cannot fetch from closed session")
         return EntryList(
@@ -445,6 +490,7 @@ class Session:
         expiry_ms: int = None,
         value_json=None,
     ):
+        """Insert a new record into the store."""
         if not self._handle:
             raise AskarError(AskarErrorCode.WRAPPER, "Cannot update closed session")
         if value is None and value_json is not None:
@@ -462,6 +508,7 @@ class Session:
         expiry_ms: int = None,
         value_json=None,
     ):
+        """Replace a record in the store matching a category and name."""
         if not self._handle:
             raise AskarError(AskarErrorCode.WRAPPER, "Cannot update closed session")
         if value is None and value_json is not None:
@@ -475,6 +522,7 @@ class Session:
         category: str,
         name: str,
     ):
+        """Remove a record by category and name."""
         if not self._handle:
             raise AskarError(AskarErrorCode.WRAPPER, "Cannot update closed session")
         await bindings.session_update(
@@ -486,6 +534,7 @@ class Session:
         category: str,
         tag_filter: Union[str, dict] = None,
     ) -> int:
+        """Remove all records matching a category and tag filter."""
         if not self._handle:
             raise AskarError(
                 AskarErrorCode.WRAPPER, "Cannot remove all for closed session"
@@ -501,6 +550,7 @@ class Session:
         tags: dict = None,
         expiry_ms: int = None,
     ) -> str:
+        """Insert a new key into the store."""
         if not self._handle:
             raise AskarError(
                 AskarErrorCode.WRAPPER, "Cannot insert key with closed session"
@@ -514,6 +564,7 @@ class Session:
     async def fetch_key(
         self, name: str, *, for_update: bool = False
     ) -> Optional[KeyEntry]:
+        """Fetch a key in the store by name."""
         if not self._handle:
             raise AskarError(
                 AskarErrorCode.WRAPPER, "Cannot fetch key from closed session"
@@ -532,6 +583,7 @@ class Session:
         limit: int = None,
         for_update: bool = False,
     ) -> KeyEntryList:
+        """Fetch a set of keys in the store.."""
         if not self._handle:
             raise AskarError(
                 AskarErrorCode.WRAPPER, "Cannot fetch key from closed session"
@@ -549,6 +601,7 @@ class Session:
         tags: dict = None,
         expiry_ms: int = None,
     ):
+        """Update details of a key in the store."""
         if not self._handle:
             raise AskarError(
                 AskarErrorCode.WRAPPER, "Cannot update key with closed session"
@@ -556,6 +609,7 @@ class Session:
         await bindings.session_update_key(self._handle, name, metadata, tags, expiry_ms)
 
     async def remove_key(self, name: str):
+        """Remove a key from the store."""
         if not self._handle:
             raise AskarError(
                 AskarErrorCode.WRAPPER, "Cannot remove key with closed session"
@@ -563,6 +617,7 @@ class Session:
         await bindings.session_remove_key(self._handle, name)
 
     async def commit(self):
+        """Commit the current transaction and close the session."""
         if not self._is_txn:
             raise AskarError(AskarErrorCode.WRAPPER, "Session is not a transaction")
         if not self._handle:
@@ -571,6 +626,7 @@ class Session:
         self._handle = None
 
     async def rollback(self):
+        """Roll back the current transaction and close the session."""
         if not self._is_txn:
             raise AskarError(AskarErrorCode.WRAPPER, "Session is not a transaction")
         if not self._handle:
@@ -581,6 +637,7 @@ class Session:
         self._handle = None
 
     async def close(self):
+        """Close the session without specifying the commit behaviour."""
         if self._handle:
             await self._handle.close(commit=False)
             self._handle = None
@@ -590,6 +647,8 @@ class Session:
 
 
 class OpenSession:
+    """A pending session instance."""
+
     def __init__(self, store: StoreHandle, profile: Optional[str], is_txn: bool):
         """Initialize the OpenSession instance."""
         self._store = store
@@ -599,9 +658,11 @@ class OpenSession:
 
     @property
     def is_transaction(self) -> bool:
+        """Determine if this instance would begin a transaction."""
         return self._is_txn
 
     async def _open(self) -> Session:
+        """Open this pending session."""
         if not self._store:
             raise AskarError(
                 AskarErrorCode.WRAPPER, "Cannot start session from closed store"
@@ -615,13 +676,16 @@ class OpenSession:
         )
 
     def __await__(self) -> Session:
+        """Open this pending session."""
         return self._open().__await__()
 
     async def __aenter__(self) -> Session:
+        """Use this pending session as an async context manager, opening the session."""
         self._session = await self._open()
         return self._session
 
     async def __aexit__(self, exc_type, exc, tb):
+        """Terminate the async context and close the session."""
         session = self._session
         self._session = None
         await session.close()
