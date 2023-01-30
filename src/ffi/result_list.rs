@@ -1,12 +1,9 @@
 use std::{ffi::CString, os::raw::c_char, ptr};
 
-use super::{handle::ArcHandle, key::LocalKeyHandle, secret::SecretBuffer, ErrorCode};
-use crate::{
-    error::Error,
-    kms::KeyEntry,
-    storage::{Entry, EntryTagSet},
+use super::{
+    handle::ArcHandle, key::LocalKeyHandle, secret::SecretBuffer, tags::EntryTagSet, ErrorCode,
 };
-
+use crate::{error::Error, kms::KeyEntry, storage::entry::Entry};
 pub enum FfiResultList<R> {
     Single(R),
     Rows(Vec<R>),

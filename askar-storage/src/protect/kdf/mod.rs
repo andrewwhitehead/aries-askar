@@ -1,8 +1,10 @@
+//! Key derivations
+
 use super::store_key::{StoreKey, PREFIX_KDF};
 use crate::{
     crypto::{buffer::ArrayKey, generic_array::ArrayLength},
     error::Error,
-    storage::Options,
+    options::Options,
 };
 
 mod argon2;

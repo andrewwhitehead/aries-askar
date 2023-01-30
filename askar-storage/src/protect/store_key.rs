@@ -114,7 +114,8 @@ pub enum StoreKeyMethod {
 }
 
 impl StoreKeyMethod {
-    pub(crate) fn parse_uri(uri: &str) -> Result<Self, Error> {
+    /// Parse a URI string into a store key method
+    pub fn parse_uri(uri: &str) -> Result<Self, Error> {
         let mut prefix_and_detail = uri.splitn(2, ':');
         let prefix = prefix_and_detail.next().unwrap_or_default();
         // let detail = prefix_and_detail.next().unwrap_or_default();

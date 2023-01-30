@@ -15,20 +15,20 @@ use sqlx::{
     Row,
 };
 
-use crate::{
-    backend::{
-        db_utils::{
-            decode_tags, decrypt_scan_batch, encode_profile_key, encode_tag_filter,
-            expiry_timestamp, extend_query, prepare_tags, random_profile_name,
-            replace_arg_placeholders, DbSession, DbSessionActive, DbSessionRef, DbSessionTxn,
-            EncScanEntry, ExtDatabase, QueryParams, QueryPrepare, PAGE_SIZE,
-        },
-        types::{Backend, QueryBackend},
+use super::{
+    db_utils::{
+        decode_tags, decrypt_scan_batch, encode_profile_key, encode_tag_filter, expiry_timestamp,
+        extend_query, prepare_tags, random_profile_name, replace_arg_placeholders, DbSession,
+        DbSessionActive, DbSessionRef, DbSessionTxn, EncScanEntry, ExtDatabase, QueryParams,
+        QueryPrepare, PAGE_SIZE,
     },
+    Backend, BackendSession,
+};
+use crate::{
+    entry::{EncEntryTag, Entry, EntryKind, EntryOperation, EntryTag, Scan, TagFilter},
     error::Error,
     future::{unblock, BoxFuture},
     protect::{EntryEncryptor, KeyCache, PassKey, ProfileId, ProfileKey, StoreKeyMethod},
-    storage::{EncEntryTag, Entry, EntryKind, EntryOperation, EntryTag, Scan, TagFilter},
 };
 
 const COUNT_QUERY: &str = "SELECT COUNT(*) FROM items i
@@ -82,7 +82,7 @@ pub use provision::PostgresStoreOptions;
 pub mod test_db;
 
 /// A PostgreSQL database store
-pub struct PostgresStore {
+pub struct PostgresBackend {
     conn_pool: PgPool,
     default_profile: String,
     key_cache: Arc<KeyCache>,
@@ -90,7 +90,7 @@ pub struct PostgresStore {
     name: String,
 }
 
-impl PostgresStore {
+impl PostgresBackend {
     pub(crate) fn new(
         conn_pool: PgPool,
         default_profile: String,
@@ -108,7 +108,7 @@ impl PostgresStore {
     }
 }
 
-impl Backend for PostgresStore {
+impl Backend for PostgresBackend {
     type Session = DbSession<Postgres>;
 
     fn create_profile(&self, name: Option<String>) -> BoxFuture<'_, Result<String, Error>> {
@@ -157,7 +157,7 @@ impl Backend for PostgresStore {
         })
     }
 
-    fn rekey_backend(
+    fn rekey(
         &mut self,
         method: StoreKeyMethod,
         pass_key: PassKey<'_>,
@@ -259,7 +259,7 @@ impl Backend for PostgresStore {
     }
 }
 
-impl Debug for PostgresStore {
+impl Debug for PostgresBackend {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("PostgresStore")
             .field("default_profile", &self.default_profile)
@@ -269,7 +269,7 @@ impl Debug for PostgresStore {
     }
 }
 
-impl QueryBackend for DbSession<Postgres> {
+impl BackendSession for DbSession<Postgres> {
     fn count<'q>(
         &'q mut self,
         kind: Option<EntryKind>,
@@ -290,14 +290,14 @@ impl QueryBackend for DbSession<Postgres> {
                         enc_category
                             .map(|c| key.encrypt_entry_category(c))
                             .transpose()?,
-                        encode_tag_filter::<PostgresStore>(tag_filter, &key, params_len)?,
+                        encode_tag_filter::<PostgresBackend>(tag_filter, &key, params_len)?,
                     ))
                 }
             })
             .await?;
             params.push(enc_category);
             let query =
-                extend_query::<PostgresStore>(COUNT_QUERY, &mut params, tag_filter, None, None)?;
+                extend_query::<PostgresBackend>(COUNT_QUERY, &mut params, tag_filter, None, None)?;
             let mut active = acquire_session(&mut *self).await?;
             let count = sqlx::query_scalar_with(query.as_str(), params)
                 .fetch_one(active.connection_mut())
@@ -418,13 +418,13 @@ impl QueryBackend for DbSession<Postgres> {
                         enc_category
                             .map(|c| key.encrypt_entry_category(c))
                             .transpose()?,
-                        encode_tag_filter::<PostgresStore>(tag_filter, &key, params_len)?,
+                        encode_tag_filter::<PostgresBackend>(tag_filter, &key, params_len)?,
                     ))
                 }
             })
             .await?;
             params.push(enc_category);
-            let query = extend_query::<PostgresStore>(
+            let query = extend_query::<PostgresBackend>(
                 DELETE_ALL_QUERY,
                 &mut params,
                 tag_filter,
@@ -456,7 +456,7 @@ impl QueryBackend for DbSession<Postgres> {
 
         match operation {
             op @ EntryOperation::Insert | op @ EntryOperation::Replace => {
-                let value = ProfileKey::prepare_input(value.unwrap());
+                let value = ProfileKey::prepare_input(value.unwrap_or_default());
                 let tags = tags.map(prepare_tags);
                 Box::pin(async move {
                     let (_, key) = acquire_key(&mut *self).await?;
@@ -506,14 +506,14 @@ impl QueryBackend for DbSession<Postgres> {
         }
     }
 
-    fn close(self, commit: bool) -> BoxFuture<'static, Result<(), Error>> {
-        Box::pin(DbSession::close(self, commit))
+    fn close(&mut self, commit: bool) -> BoxFuture<'_, Result<(), Error>> {
+        Box::pin(self.close(commit))
     }
 }
 
 impl ExtDatabase for Postgres {}
 
-impl QueryPrepare for PostgresStore {
+impl QueryPrepare for PostgresBackend {
     type DB = Postgres;
 
     fn placeholder(index: i64) -> String {
@@ -680,12 +680,12 @@ fn perform_scan(
                     enc_category
                         .map(|c| key.encrypt_entry_category(c))
                         .transpose()?,
-                    encode_tag_filter::<PostgresStore>(tag_filter, &key, params_len)?
+                    encode_tag_filter::<PostgresBackend>(tag_filter, &key, params_len)?
                 ))
             }
         }).await?;
         params.push(enc_category);
-        let mut query = extend_query::<PostgresStore>(SCAN_QUERY, &mut params, tag_filter, offset, limit)?;
+        let mut query = extend_query::<PostgresBackend>(SCAN_QUERY, &mut params, tag_filter, offset, limit)?;
         if for_update {
             query.push_str(" FOR NO KEY UPDATE");
         }
@@ -719,7 +719,7 @@ mod tests {
     #[test]
     fn postgres_simple_and_convert_args_works() {
         assert_eq!(
-            &replace_arg_placeholders::<PostgresStore>("This $$ is $10 a $$ string!", 3),
+            &replace_arg_placeholders::<PostgresBackend>("This $$ is $10 a $$ string!", 3),
             "This $3 is $12 a $5 string!",
         );
     }

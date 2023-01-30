@@ -8,15 +8,13 @@ use sqlx::{
 };
 
 use crate::{
+    entry::{EncEntryTag, Entry, EntryTag, TagFilter},
     error::Error,
     future::BoxFuture,
     protect::{EntryEncryptor, KeyCache, PassKey, ProfileId, ProfileKey, StoreKey, StoreKeyMethod},
-    storage::{
-        wql::{
-            sql::TagSqlEncoder,
-            tags::{tag_query, TagQueryEncoder},
-        },
-        {EncEntryTag, Entry, EntryTag, TagFilter},
+    wql::{
+        sql::TagSqlEncoder,
+        tags::{tag_query, TagQueryEncoder},
     },
 };
 
@@ -137,7 +135,7 @@ impl<DB: ExtDatabase> DbSession<DB> {
         DbSessionRef::Owned(self)
     }
 
-    pub(crate) async fn close(mut self, commit: bool) -> Result<(), Error> {
+    pub(crate) async fn close(&mut self, commit: bool) -> Result<(), Error> {
         if self.txn_depth > 0 {
             self.txn_depth = 0;
             if let Some(conn) = self.connection_mut() {

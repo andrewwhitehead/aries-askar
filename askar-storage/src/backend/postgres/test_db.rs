@@ -7,19 +7,21 @@ use sqlx::{
 use std::time::Duration;
 
 use super::provision::{init_db, reset_db, PostgresStoreOptions};
-use super::PostgresStore;
+use super::PostgresBackend;
 use crate::{
-    backend::db_utils::{init_keys, random_profile_name},
+    backend::{
+        db_utils::{init_keys, random_profile_name},
+        Backend,
+    },
     error::Error,
     future::{sleep, spawn_ok, timeout, unblock},
     protect::{generate_raw_store_key, KeyCache, StoreKeyMethod},
-    storage::Store,
 };
 
 #[derive(Debug)]
 /// Postgres test database wrapper instance
 pub struct TestDB {
-    inst: Option<Store<PostgresStore>>,
+    inst: Option<PostgresBackend>,
     lock_txn: Option<PgConnection>,
 }
 
@@ -68,13 +70,8 @@ impl TestDB {
 
         let mut key_cache = KeyCache::new(store_key);
         key_cache.add_profile_mut(default_profile.clone(), profile_id, profile_key);
-        let inst = Store::new(PostgresStore::new(
-            conn_pool,
-            default_profile,
-            key_cache,
-            opts.host,
-            opts.name,
-        ));
+        let inst =
+            PostgresBackend::new(conn_pool, default_profile, key_cache, opts.host, opts.name);
 
         Ok(TestDB {
             inst: Some(inst),
@@ -84,7 +81,7 @@ impl TestDB {
 
     async fn close_internal(
         mut lock_txn: Option<PgConnection>,
-        mut inst: Option<Store<PostgresStore>>,
+        mut inst: Option<PostgresBackend>,
     ) -> Result<(), Error> {
         if let Some(lock_txn) = lock_txn.take() {
             lock_txn.close().await?;
@@ -110,7 +107,7 @@ impl TestDB {
 }
 
 impl std::ops::Deref for TestDB {
-    type Target = Store<PostgresStore>;
+    type Target = PostgresBackend;
 
     fn deref(&self) -> &Self::Target {
         self.inst.as_ref().unwrap()

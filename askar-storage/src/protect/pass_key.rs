@@ -26,7 +26,8 @@ impl PassKey<'_> {
         self.0.is_none()
     }
 
-    pub(crate) fn into_owned(self) -> PassKey<'static> {
+    /// Convert to an owned instance, allocating if necessary
+    pub fn into_owned(self) -> PassKey<'static> {
         let mut slf = ManuallyDrop::new(self);
         let val = slf.0.take();
         PassKey(match val {

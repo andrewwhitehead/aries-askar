@@ -6,7 +6,8 @@ const ERR_CREATE_KEYPAIR: &str = "Error creating keypair";
 const ERR_SIGN: &str = "Error signing message";
 const ERR_VERIFY: &str = "Error verifying signature";
 
-pub async fn localkey_sign_verify() {
+#[test]
+pub fn localkey_sign_verify() {
     let keypair = LocalKey::generate(KeyAlg::Ed25519, true).expect(ERR_CREATE_KEYPAIR);
 
     let message = b"message".to_vec();
@@ -38,8 +39,8 @@ pub async fn localkey_sign_verify() {
     assert_eq!(
         keypair
             .verify_signature(&message, b"bad sig", None)
-            .is_err(),
-        true
+            .expect(ERR_VERIFY),
+        false
     );
 
     assert_eq!(

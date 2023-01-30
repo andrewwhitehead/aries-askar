@@ -14,20 +14,19 @@ use sqlx::{
     Database, Error as SqlxError, Row, TransactionManager,
 };
 
-use crate::{
-    backend::{
-        db_utils::{
-            decode_tags, decrypt_scan_batch, encode_profile_key, encode_tag_filter,
-            expiry_timestamp, extend_query, prepare_tags, random_profile_name, DbSession,
-            DbSessionActive, DbSessionRef, DbSessionTxn, EncScanEntry, ExtDatabase, QueryParams,
-            QueryPrepare, PAGE_SIZE,
-        },
-        types::{Backend, QueryBackend},
+use super::{
+    db_utils::{
+        decode_tags, decrypt_scan_batch, encode_profile_key, encode_tag_filter, expiry_timestamp,
+        extend_query, prepare_tags, random_profile_name, DbSession, DbSessionActive, DbSessionRef,
+        DbSessionTxn, EncScanEntry, ExtDatabase, QueryParams, QueryPrepare, PAGE_SIZE,
     },
+    Backend, BackendSession,
+};
+use crate::{
+    entry::{EncEntryTag, Entry, EntryKind, EntryOperation, EntryTag, Scan, TagFilter},
     error::Error,
     future::{unblock, BoxFuture},
     protect::{EntryEncryptor, KeyCache, PassKey, ProfileId, ProfileKey, StoreKeyMethod},
-    storage::{EncEntryTag, Entry, EntryKind, EntryOperation, EntryTag, Scan, TagFilter},
 };
 
 mod provision;
@@ -68,14 +67,14 @@ const TAG_DELETE_QUERY: &str = "DELETE FROM items_tags
     WHERE item_id=?1";
 
 /// A Sqlite database store
-pub struct SqliteStore {
+pub struct SqliteBackend {
     conn_pool: SqlitePool,
     default_profile: String,
     key_cache: Arc<KeyCache>,
     path: String,
 }
 
-impl SqliteStore {
+impl SqliteBackend {
     pub(crate) fn new(
         conn_pool: SqlitePool,
         default_profile: String,
@@ -91,7 +90,7 @@ impl SqliteStore {
     }
 }
 
-impl Debug for SqliteStore {
+impl Debug for SqliteBackend {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("SqliteStore")
             .field("default_profile", &self.default_profile)
@@ -100,11 +99,11 @@ impl Debug for SqliteStore {
     }
 }
 
-impl QueryPrepare for SqliteStore {
+impl QueryPrepare for SqliteBackend {
     type DB = Sqlite;
 }
 
-impl Backend for SqliteStore {
+impl Backend for SqliteBackend {
     type Session = DbSession<Sqlite>;
 
     fn create_profile(&self, name: Option<String>) -> BoxFuture<'_, Result<String, Error>> {
@@ -154,7 +153,7 @@ impl Backend for SqliteStore {
         })
     }
 
-    fn rekey_backend(
+    fn rekey(
         &mut self,
         method: StoreKeyMethod,
         pass_key: PassKey<'_>,
@@ -255,7 +254,7 @@ impl Backend for SqliteStore {
     }
 }
 
-impl QueryBackend for DbSession<Sqlite> {
+impl BackendSession for DbSession<Sqlite> {
     fn count<'q>(
         &'q mut self,
         kind: Option<EntryKind>,
@@ -276,14 +275,14 @@ impl QueryBackend for DbSession<Sqlite> {
                         enc_category
                             .map(|c| key.encrypt_entry_category(c))
                             .transpose()?,
-                        encode_tag_filter::<SqliteStore>(tag_filter, &key, params_len)?,
+                        encode_tag_filter::<SqliteBackend>(tag_filter, &key, params_len)?,
                     ))
                 }
             })
             .await?;
             params.push(enc_category);
             let query =
-                extend_query::<SqliteStore>(COUNT_QUERY, &mut params, tag_filter, None, None)?;
+                extend_query::<SqliteBackend>(COUNT_QUERY, &mut params, tag_filter, None, None)?;
             let mut active = acquire_session(&mut *self).await?;
             let count = sqlx::query_scalar_with(query.as_str(), params)
                 .fetch_one(active.connection_mut())
@@ -393,14 +392,19 @@ impl QueryBackend for DbSession<Sqlite> {
                         enc_category
                             .map(|c| key.encrypt_entry_category(c))
                             .transpose()?,
-                        encode_tag_filter::<SqliteStore>(tag_filter, &key, params_len)?,
+                        encode_tag_filter::<SqliteBackend>(tag_filter, &key, params_len)?,
                     ))
                 }
             })
             .await?;
             params.push(enc_category);
-            let query =
-                extend_query::<SqliteStore>(DELETE_ALL_QUERY, &mut params, tag_filter, None, None)?;
+            let query = extend_query::<SqliteBackend>(
+                DELETE_ALL_QUERY,
+                &mut params,
+                tag_filter,
+                None,
+                None,
+            )?;
 
             let mut active = acquire_session(&mut *self).await?;
             let removed = sqlx::query_with(query.as_str(), params)
@@ -426,7 +430,7 @@ impl QueryBackend for DbSession<Sqlite> {
 
         match operation {
             op @ EntryOperation::Insert | op @ EntryOperation::Replace => {
-                let value = ProfileKey::prepare_input(value.unwrap());
+                let value = ProfileKey::prepare_input(value.unwrap_or_default());
                 let tags = tags.map(prepare_tags);
                 Box::pin(async move {
                     let (_, key) = acquire_key(&mut *self).await?;
@@ -476,8 +480,8 @@ impl QueryBackend for DbSession<Sqlite> {
         }
     }
 
-    fn close(self, commit: bool) -> BoxFuture<'static, Result<(), Error>> {
-        Box::pin(DbSession::close(self, commit))
+    fn close(&mut self, commit: bool) -> BoxFuture<'_, Result<(), Error>> {
+        Box::pin(self.close(commit))
     }
 }
 
@@ -642,12 +646,12 @@ fn perform_scan(
             move || {
                 Result::<_, Error>::Ok((
                     enc_category.map(|c| key.encrypt_entry_category(c)).transpose()?,
-                    encode_tag_filter::<SqliteStore>(tag_filter, &key, params_len)?
+                    encode_tag_filter::<SqliteBackend>(tag_filter, &key, params_len)?
                 ))
             }
         }).await?;
         params.push(enc_category);
-        let query = extend_query::<SqliteStore>(SCAN_QUERY, &mut params, tag_filter, offset, limit)?;
+        let query = extend_query::<SqliteBackend>(SCAN_QUERY, &mut params, tag_filter, offset, limit)?;
 
         let mut batch = Vec::with_capacity(PAGE_SIZE);
 
@@ -687,7 +691,7 @@ mod tests {
             let ts = expiry_timestamp(1000).unwrap();
             let check = sqlx::query("SELECT datetime('now'), ?1, ?1 > datetime('now')")
                 .bind(ts)
-                .fetch_one(&db.inner().conn_pool)
+                .fetch_one(&db.conn_pool)
                 .await?;
             let now: String = check.try_get(0)?;
             let cmp_ts: String = check.try_get(1)?;
@@ -703,11 +707,11 @@ mod tests {
     #[test]
     fn sqlite_query_placeholders() {
         assert_eq!(
-            &replace_arg_placeholders::<SqliteStore>("This $$ is $10 a $$ string!", 3),
+            &replace_arg_placeholders::<SqliteBackend>("This $$ is $10 a $$ string!", 3),
             "This ?3 is ?12 a ?5 string!",
         );
         assert_eq!(
-            &replace_arg_placeholders::<SqliteStore>("This $a is a string!", 1),
+            &replace_arg_placeholders::<SqliteBackend>("This $a is a string!", 1),
             "This $a is a string!",
         );
     }

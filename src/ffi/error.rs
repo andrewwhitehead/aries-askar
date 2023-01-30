@@ -60,11 +60,17 @@ pub extern "C" fn askar_get_current_error(error_json_p: *mut *const c_char) -> E
 }
 
 pub fn get_current_error_json() -> String {
+    #[derive(Serialize)]
+    struct ErrorJson {
+        code: usize,
+        message: String,
+    }
+
     if let Some(err) = Option::take(&mut *LAST_ERROR.write().unwrap()) {
         let message = err.to_string();
         let code = ErrorCode::from(err.kind()) as usize;
         // let extra = err.extra();
-        json!({"code": code, "message": message}).to_string()
+        serde_json::to_string(&ErrorJson { code, message }).unwrap()
     } else {
         r#"{"code":0,"message":null}"#.to_owned()
     }

@@ -1,14 +1,16 @@
+use std::fmt::Debug;
+
 use crate::{
+    entry::{Entry, EntryKind, EntryOperation, EntryTag, Scan, TagFilter},
     error::Error,
     future::BoxFuture,
     protect::{PassKey, StoreKeyMethod},
-    storage::{Entry, EntryKind, EntryOperation, EntryTag, Scan, TagFilter},
 };
 
 /// Represents a generic backend implementation
-pub trait Backend: Send + Sync {
+pub trait Backend: Debug + Send + Sync {
     /// The type of session managed by this backend
-    type Session: QueryBackend;
+    type Session: BackendSession + 'static;
 
     /// Create a new profile
     fn create_profile(&self, name: Option<String>) -> BoxFuture<'_, Result<String, Error>>;
@@ -34,7 +36,7 @@ pub trait Backend: Send + Sync {
     fn session(&self, profile: Option<String>, transaction: bool) -> Result<Self::Session, Error>;
 
     /// Replace the wrapping key of the store
-    fn rekey_backend(
+    fn rekey(
         &mut self,
         method: StoreKeyMethod,
         key: PassKey<'_>,
@@ -46,8 +48,8 @@ pub trait Backend: Send + Sync {
 
 /// Create, open, or remove a generic backend implementation
 pub trait ManageBackend<'a> {
-    /// The type of store being managed
-    type Store;
+    /// The type of backend being managed
+    type Backend;
 
     /// Open an existing store
     fn open_backend(
@@ -55,7 +57,7 @@ pub trait ManageBackend<'a> {
         method: Option<StoreKeyMethod>,
         pass_key: PassKey<'a>,
         profile: Option<&'a str>,
-    ) -> BoxFuture<'a, Result<Self::Store, Error>>;
+    ) -> BoxFuture<'a, Result<Self::Backend, Error>>;
 
     /// Provision a new store
     fn provision_backend(
@@ -64,14 +66,14 @@ pub trait ManageBackend<'a> {
         pass_key: PassKey<'a>,
         profile: Option<&'a str>,
         recreate: bool,
-    ) -> BoxFuture<'a, Result<Self::Store, Error>>;
+    ) -> BoxFuture<'a, Result<Self::Backend, Error>>;
 
     /// Remove an existing store
     fn remove_backend(self) -> BoxFuture<'a, Result<bool, Error>>;
 }
 
 /// Query from a generic backend implementation
-pub trait QueryBackend: Send {
+pub trait BackendSession: Debug + Send {
     /// Count the number of matching records in the store
     fn count<'q>(
         &'q mut self,
@@ -121,5 +123,5 @@ pub trait QueryBackend: Send {
     ) -> BoxFuture<'q, Result<(), Error>>;
 
     /// Close the current store session
-    fn close(self, commit: bool) -> BoxFuture<'static, Result<(), Error>>;
+    fn close(&mut self, commit: bool) -> BoxFuture<'_, Result<(), Error>>;
 }

@@ -10,16 +10,16 @@ use sqlx::{
     ConnectOptions, Error as SqlxError, Row,
 };
 
-use super::SqliteStore;
+use super::SqliteBackend;
 use crate::{
     backend::{
         db_utils::{init_keys, random_profile_name},
-        types::ManageBackend,
+        ManageBackend,
     },
     error::Error,
     future::{unblock, BoxFuture},
+    options::{IntoOptions, Options},
     protect::{KeyCache, PassKey, StoreKeyMethod, StoreKeyReference},
-    storage::{IntoOptions, Options, Store},
 };
 
 const DEFAULT_MIN_CONNECTIONS: u32 = 1;
@@ -148,7 +148,7 @@ impl SqliteStoreOptions {
         pass_key: PassKey<'_>,
         profile: Option<&'_ str>,
         recreate: bool,
-    ) -> Result<Store<SqliteStore>, Error> {
+    ) -> Result<SqliteBackend, Error> {
         if recreate && !self.in_memory {
             try_remove_file(self.path.to_string()).await?;
         }
@@ -178,12 +178,12 @@ impl SqliteStoreOptions {
             .unwrap_or_else(random_profile_name);
         let key_cache = init_db(&conn_pool, &default_profile, method, pass_key).await?;
 
-        Ok(Store::new(SqliteStore::new(
+        Ok(SqliteBackend::new(
             conn_pool,
             default_profile,
             key_cache,
             self.path.to_string(),
-        )))
+        ))
     }
 
     /// Open an existing Sqlite store from this set of configuration options
@@ -192,7 +192,7 @@ impl SqliteStoreOptions {
         method: Option<StoreKeyMethod>,
         pass_key: PassKey<'_>,
         profile: Option<&'_ str>,
-    ) -> Result<Store<SqliteStore>, Error> {
+    ) -> Result<SqliteBackend, Error> {
         let conn_pool = match self.pool(false).await {
             Ok(pool) => Ok(pool),
             Err(SqlxError::Database(db_err)) => {
@@ -236,14 +236,14 @@ impl SqliteStoreOptions {
 }
 
 impl<'a> ManageBackend<'a> for SqliteStoreOptions {
-    type Store = Store<SqliteStore>;
+    type Backend = SqliteBackend;
 
     fn open_backend(
         self,
         method: Option<StoreKeyMethod>,
         pass_key: PassKey<'a>,
         profile: Option<&'a str>,
-    ) -> BoxFuture<'a, Result<Store<SqliteStore>, Error>> {
+    ) -> BoxFuture<'a, Result<SqliteBackend, Error>> {
         Box::pin(self.open(method, pass_key, profile))
     }
 
@@ -253,7 +253,7 @@ impl<'a> ManageBackend<'a> for SqliteStoreOptions {
         pass_key: PassKey<'a>,
         profile: Option<&'a str>,
         recreate: bool,
-    ) -> BoxFuture<'a, Result<Store<SqliteStore>, Error>> {
+    ) -> BoxFuture<'a, Result<SqliteBackend, Error>> {
         Box::pin(self.provision(method, pass_key, profile, recreate))
     }
 
@@ -357,7 +357,7 @@ async fn open_db(
     pass_key: PassKey<'_>,
     profile: Option<&str>,
     path: String,
-) -> Result<Store<SqliteStore>, Error> {
+) -> Result<SqliteBackend, Error> {
     let mut conn = conn_pool.acquire().await?;
     let mut ver_ok = false;
     let mut default_profile: Option<String> = None;
@@ -418,9 +418,7 @@ async fn open_db(
     let profile_key = key_cache.load_key(row.try_get(1)?).await?;
     key_cache.add_profile_mut(profile.clone(), profile_id, profile_key);
 
-    Ok(Store::new(SqliteStore::new(
-        conn_pool, profile, key_cache, path,
-    )))
+    Ok(SqliteBackend::new(conn_pool, profile, key_cache, path))
 }
 
 async fn try_remove_file(path: String) -> Result<bool, Error> {

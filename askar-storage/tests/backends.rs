@@ -6,7 +6,7 @@ const ERR_CLOSE: &str = "Error closing database";
 
 macro_rules! backend_tests {
     ($init:expr) => {
-        use aries_askar::future::block_on;
+        use askar_storage::future::block_on;
         use std::sync::Arc;
         use $crate::utils::TestStore;
 
@@ -127,42 +127,6 @@ macro_rules! backend_tests {
         }
 
         #[test]
-        fn keypair_create_fetch() {
-            block_on(async {
-                let db = $init.await;
-                super::utils::db_keypair_insert_fetch(db.clone()).await;
-                db.close().await.expect(ERR_CLOSE);
-            })
-        }
-
-        // #[test]
-        // fn keypair_sign_verify() {
-        //     block_on(async {
-        //         let db = $init.await;
-        //         super::utils::db_keypair_sign_verify(db.clone()).await;
-        //         db.close().await.expect(ERR_CLOSE);
-        //     })
-        // }
-
-        // #[test]
-        // fn keypair_pack_unpack_anon() {
-        //     block_on(async {
-        //         let db = $init.await;
-        //         super::utils::db_keypair_pack_unpack_anon(db.clone()).await;
-        //         db.close().await.expect(ERR_CLOSE);
-        //     })
-        // }
-
-        // #[test]
-        // fn keypair_pack_unpack_auth() {
-        //     block_on(async {
-        //         let db = $init.await;
-        //         super::utils::db_keypair_pack_unpack_auth(db).await;
-        //         db.close().await.expect(ERR_CLOSE);
-        //     })
-        // }
-
-        #[test]
         fn txn_rollback() {
             block_on(async {
                 let db = $init.await;
@@ -219,13 +183,13 @@ macro_rules! backend_tests {
 }
 
 fn log_init() {
-    env_logger::builder().is_test(true).try_init().unwrap_or(());
+    // env_logger::builder().is_test(true).try_init().unwrap_or(());
 }
 
 #[cfg(feature = "sqlite")]
 mod sqlite {
-    use aries_askar::backend::sqlite::{SqliteStore, SqliteStoreOptions};
-    use aries_askar::{generate_raw_store_key, ManageBackend, Store, StoreKeyMethod};
+    use askar_storage::backend::sqlite::{SqliteBackend, SqliteStoreOptions};
+    use askar_storage::{generate_raw_store_key, Backend, ManageBackend, StoreKeyMethod};
     use std::path::Path;
 
     use super::*;
@@ -413,7 +377,7 @@ mod sqlite {
         });
     }
 
-    async fn init_db() -> Arc<Store<SqliteStore>> {
+    async fn init_db() -> Arc<SqliteBackend> {
         log_init();
         let key = generate_raw_store_key(None).expect("Error creating raw key");
         Arc::new(

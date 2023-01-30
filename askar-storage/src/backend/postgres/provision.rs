@@ -10,15 +10,15 @@ use sqlx::{
 use crate::{
     backend::{
         db_utils::{init_keys, random_profile_name},
-        types::ManageBackend,
+        ManageBackend,
     },
     error::Error,
     future::{unblock, BoxFuture},
+    options::IntoOptions,
     protect::{KeyCache, PassKey, ProfileId, StoreKeyMethod, StoreKeyReference},
-    storage::{IntoOptions, Store},
 };
 
-use super::PostgresStore;
+use super::PostgresBackend;
 
 const DEFAULT_CONNECT_TIMEOUT: u64 = 30;
 const DEFAULT_IDLE_TIMEOUT: u64 = 300;
@@ -173,7 +173,7 @@ impl PostgresStoreOptions {
         pass_key: PassKey<'_>,
         profile: Option<&str>,
         recreate: bool,
-    ) -> Result<Store<PostgresStore>, Error> {
+    ) -> Result<PostgresBackend, Error> {
         let conn_pool = self.create_db_pool().await?;
         let mut txn = conn_pool.begin().await?;
 
@@ -213,13 +213,13 @@ impl PostgresStoreOptions {
         let mut key_cache = KeyCache::new(store_key);
         key_cache.add_profile_mut(default_profile.clone(), profile_id, profile_key);
 
-        Ok(Store::new(PostgresStore::new(
+        Ok(PostgresBackend::new(
             conn_pool,
             default_profile,
             key_cache,
             self.host,
             self.name,
-        )))
+        ))
     }
 
     /// Open an existing Postgres store from this set of configuration options
@@ -228,7 +228,7 @@ impl PostgresStoreOptions {
         method: Option<StoreKeyMethod>,
         pass_key: PassKey<'_>,
         profile: Option<&str>,
-    ) -> Result<Store<PostgresStore>, Error> {
+    ) -> Result<PostgresBackend, Error> {
         let pool = match self.pool().await {
             Ok(p) => Ok(p),
             Err(SqlxError::Database(db_err)) if db_err.code() == Some(Cow::Borrowed("3D000")) => {
@@ -263,14 +263,14 @@ impl PostgresStoreOptions {
 }
 
 impl<'a> ManageBackend<'a> for PostgresStoreOptions {
-    type Store = Store<PostgresStore>;
+    type Backend = PostgresBackend;
 
     fn open_backend(
         self,
         method: Option<StoreKeyMethod>,
         pass_key: PassKey<'_>,
         profile: Option<&'a str>,
-    ) -> BoxFuture<'a, Result<Store<PostgresStore>, Error>> {
+    ) -> BoxFuture<'a, Result<PostgresBackend, Error>> {
         let pass_key = pass_key.into_owned();
         Box::pin(self.open(method, pass_key, profile))
     }
@@ -281,7 +281,7 @@ impl<'a> ManageBackend<'a> for PostgresStoreOptions {
         pass_key: PassKey<'_>,
         profile: Option<&'a str>,
         recreate: bool,
-    ) -> BoxFuture<'a, Result<Store<PostgresStore>, Error>> {
+    ) -> BoxFuture<'a, Result<PostgresBackend, Error>> {
         let pass_key = pass_key.into_owned();
         Box::pin(self.provision(method, pass_key, profile, recreate))
     }
@@ -389,7 +389,7 @@ pub(crate) async fn open_db(
     profile: Option<&str>,
     host: String,
     name: String,
-) -> Result<Store<PostgresStore>, Error> {
+) -> Result<PostgresBackend, Error> {
     let mut conn = conn_pool.acquire().await?;
     let mut ver_ok = false;
     let mut default_profile: Option<String> = None;
@@ -450,9 +450,9 @@ pub(crate) async fn open_db(
     let profile_key = key_cache.load_key(row.try_get(1)?).await?;
     key_cache.add_profile_mut(profile.clone(), profile_id, profile_key);
 
-    Ok(Store::new(PostgresStore::new(
+    Ok(PostgresBackend::new(
         conn_pool, profile, key_cache, host, name,
-    )))
+    ))
 }
 
 #[cfg(test)]

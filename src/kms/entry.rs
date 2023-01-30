@@ -2,7 +2,7 @@ use super::local_key::LocalKey;
 use crate::{
     crypto::{alg::AnyKey, buffer::SecretBytes, jwk::FromJwk},
     error::Error,
-    storage::{Entry, EntryTag},
+    storage::entry::{Entry, EntryTag},
 };
 
 /// Parameters defining a stored key

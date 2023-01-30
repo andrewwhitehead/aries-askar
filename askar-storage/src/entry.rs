@@ -1,16 +1,12 @@
+//! Entry type definitions
+
 use std::{
-    borrow::Cow,
     fmt::{self, Debug, Formatter},
     pin::Pin,
     str::FromStr,
 };
 
 use futures_lite::stream::{Stream, StreamExt};
-use serde::{
-    de::{Error as SerdeError, MapAccess, SeqAccess, Visitor},
-    ser::SerializeMap,
-    Deserialize, Deserializer, Serialize, Serializer,
-};
 use zeroize::Zeroize;
 
 use super::wql;
@@ -73,9 +69,12 @@ impl PartialEq for Entry {
     }
 }
 
+/// Set of distinct entry kinds for separating records.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EntryKind {
+    /// Key manager entry
     Kms = 1,
+    /// General stored item
     Item = 2,
 }
 
@@ -107,7 +106,8 @@ impl EntryTag {
         }
     }
 
-    pub(crate) fn map_ref(&self, f: impl FnOnce(&str, &str) -> (String, String)) -> Self {
+    /// Create a new EntryTag using references to the name and value
+    pub fn map_ref(&self, f: impl FnOnce(&str, &str) -> (String, String)) -> Self {
         match self {
             Self::Encrypted(name, val) => {
                 let (name, val) = f(name.as_str(), val.as_str());
@@ -121,7 +121,7 @@ impl EntryTag {
     }
 
     /// Setter for the tag name
-    pub(crate) fn update_name(&mut self, f: impl FnOnce(&mut String)) {
+    pub fn update_name(&mut self, f: impl FnOnce(&mut String)) {
         match self {
             Self::Encrypted(name, _) | Self::Plaintext(name, _) => f(name),
         }
@@ -135,7 +135,7 @@ impl EntryTag {
     }
 
     /// Unwrap the tag value
-    pub(crate) fn into_value(self) -> String {
+    pub fn into_value(self) -> String {
         match self {
             Self::Encrypted(_, value) | Self::Plaintext(_, value) => value,
         }
@@ -156,184 +156,6 @@ impl Debug for EntryTag {
                 .field(&value)
                 .finish(),
         }
-    }
-}
-
-/// A wrapper type used for managing (de)serialization of tags
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct EntryTagSet<'e>(Cow<'e, [EntryTag]>);
-
-impl EntryTagSet<'_> {
-    #[inline]
-    pub fn into_vec(self) -> Vec<EntryTag> {
-        self.0.into_owned()
-    }
-}
-
-impl<'e> From<&'e [EntryTag]> for EntryTagSet<'e> {
-    fn from(tags: &'e [EntryTag]) -> Self {
-        Self(Cow::Borrowed(tags))
-    }
-}
-
-impl From<Vec<EntryTag>> for EntryTagSet<'static> {
-    fn from(tags: Vec<EntryTag>) -> Self {
-        Self(Cow::Owned(tags))
-    }
-}
-
-impl<'de> Deserialize<'de> for EntryTagSet<'static> {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct TagSetVisitor;
-
-        impl<'d> Visitor<'d> for TagSetVisitor {
-            type Value = EntryTagSet<'static>;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str("an object containing zero or more entry tags")
-            }
-
-            fn visit_map<M>(self, mut access: M) -> Result<Self::Value, M::Error>
-            where
-                M: MapAccess<'d>,
-            {
-                let mut v = Vec::with_capacity(access.size_hint().unwrap_or_default());
-
-                while let Some((key, values)) = access.next_entry::<&str, EntryTagValues>()? {
-                    let (tag, enc) = match key.chars().next() {
-                        Some('~') => (key[1..].to_owned(), false),
-                        None => return Err(M::Error::custom("invalid tag name: empty string")),
-                        _ => (key.to_owned(), true),
-                    };
-                    match (values, enc) {
-                        (EntryTagValues::Single(value), true) => {
-                            v.push(EntryTag::Encrypted(tag, value))
-                        }
-                        (EntryTagValues::Single(value), false) => {
-                            v.push(EntryTag::Plaintext(tag, value))
-                        }
-                        (EntryTagValues::Multiple(values), true) => {
-                            for value in values {
-                                v.push(EntryTag::Encrypted(tag.clone(), value))
-                            }
-                        }
-                        (EntryTagValues::Multiple(values), false) => {
-                            for value in values {
-                                v.push(EntryTag::Plaintext(tag.clone(), value))
-                            }
-                        }
-                    }
-                }
-
-                Ok(EntryTagSet(Cow::Owned(v)))
-            }
-        }
-
-        deserializer.deserialize_map(TagSetVisitor)
-    }
-}
-
-enum EntryTagValues {
-    Single(String),
-    Multiple(Vec<String>),
-}
-
-impl<'de> Deserialize<'de> for EntryTagValues {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct TagValuesVisitor;
-
-        impl<'d> Visitor<'d> for TagValuesVisitor {
-            type Value = EntryTagValues;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str("a string or list of strings")
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-            where
-                E: SerdeError,
-            {
-                Ok(EntryTagValues::Single(value.to_owned()))
-            }
-
-            fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
-            where
-                E: SerdeError,
-            {
-                Ok(EntryTagValues::Single(value))
-            }
-
-            fn visit_seq<S>(self, mut access: S) -> Result<Self::Value, S::Error>
-            where
-                S: SeqAccess<'d>,
-            {
-                let mut v = Vec::with_capacity(access.size_hint().unwrap_or_default());
-                while let Some(value) = access.next_element()? {
-                    v.push(value)
-                }
-                Ok(EntryTagValues::Multiple(v))
-            }
-        }
-
-        deserializer.deserialize_any(TagValuesVisitor)
-    }
-}
-
-impl Serialize for EntryTagSet<'_> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        use std::collections::BTreeMap;
-
-        #[derive(PartialOrd, Ord)]
-        struct TagName<'a>(&'a str, bool);
-
-        impl<'a> PartialEq for TagName<'a> {
-            fn eq(&self, other: &Self) -> bool {
-                self.1 == other.1 && self.0 == other.0
-            }
-        }
-
-        impl<'a> Eq for TagName<'a> {}
-
-        impl Serialize for TagName<'_> {
-            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-            where
-                S: Serializer,
-            {
-                if self.1 {
-                    serializer.serialize_str(self.0)
-                } else {
-                    serializer.collect_str(&format_args!("~{}", self.0))
-                }
-            }
-        }
-
-        let mut tags = BTreeMap::new();
-        for tag in self.0.iter() {
-            let (name, value) = match tag {
-                EntryTag::Encrypted(name, val) => (TagName(name.as_str(), true), val.as_str()),
-                EntryTag::Plaintext(name, val) => (TagName(name.as_str(), false), val.as_str()),
-            };
-            tags.entry(name).or_insert_with(Vec::new).push(value);
-        }
-
-        let mut map = serializer.serialize_map(Some(tags.len()))?;
-        for (tag_name, values) in tags.into_iter() {
-            if values.len() > 1 {
-                map.serialize_entry(&tag_name, &values)?;
-            } else {
-                map.serialize_entry(&tag_name, &values[0])?;
-            }
-        }
-        map.end()
     }
 }
 
@@ -452,6 +274,11 @@ impl TagFilter {
     pub fn to_string(&self) -> Result<String, Error> {
         serde_json::to_string(&self.query).map_err(err_map!("Error encoding tag filter"))
     }
+
+    /// Unwrap into a wql::Query
+    pub fn into_query(self) -> wql::Query {
+        self.query
+    }
 }
 
 impl From<wql::Query> for TagFilter {
@@ -510,23 +337,5 @@ impl<S> Debug for Scan<'_, S> {
         f.debug_struct("Scan")
             .field("page_size", &self.page_size)
             .finish()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn serialize_tags() {
-        let tags = EntryTagSet::from(vec![
-            EntryTag::Encrypted("a".to_owned(), "aval".to_owned()),
-            EntryTag::Plaintext("b".to_owned(), "bval".to_owned()),
-            EntryTag::Plaintext("b".to_owned(), "bval-2".to_owned()),
-        ]);
-        let ser = serde_json::to_string(&tags).unwrap();
-        assert_eq!(ser, r#"{"a":"aval","~b":["bval","bval-2"]}"#);
-        let tags2 = serde_json::from_str(&ser).unwrap();
-        assert_eq!(tags, tags2);
     }
 }

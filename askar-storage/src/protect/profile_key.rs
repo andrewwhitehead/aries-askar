@@ -12,8 +12,8 @@ use crate::{
         kdf::FromKeyDerivation,
         repr::KeyGen,
     },
+    entry::{EncEntryTag, EntryTag},
     error::Error,
-    storage::{EncEntryTag, EntryTag},
 };
 
 pub type ProfileKey = ProfileKeyImpl<Chacha20Key<C20P>, HmacKey<Sha256, U32>>;
@@ -250,7 +250,7 @@ fn decode_utf8(value: Vec<u8>) -> Result<String, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::Entry;
+    use crate::entry::Entry;
 
     #[test]
     fn encrypt_entry_round_trip() {

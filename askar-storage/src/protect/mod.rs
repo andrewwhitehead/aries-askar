@@ -1,3 +1,5 @@
+//! Storage encryption
+
 use std::{collections::HashMap, sync::Arc};
 
 use async_lock::RwLock;
@@ -17,9 +19,9 @@ pub use self::store_key::{generate_raw_store_key, StoreKey, StoreKeyMethod, Stor
 
 use crate::{
     crypto::buffer::SecretBytes,
+    entry::{EncEntryTag, EntryTag},
     error::Error,
     future::unblock,
-    storage::{EncEntryTag, EntryTag},
 };
 
 pub type ProfileId = i64;

@@ -55,8 +55,8 @@ base64 = { version = "0.13", default-features = false }
 blake2 = { version = "0.10", default-features = false }
 block-modes = { version = "0.8", default-features = false, optional = true }
 bls12_381 = { version = "0.6", default-features = false, features = ["groups", "zeroize"], optional = true }
-chacha20 = { version = "0.7" }  # should match chacha20poly1305
-chacha20poly1305 = { version = "0.8", default-features = false, optional = true }
+chacha20 = { version = "0.8" }  # should match dependency of chacha20poly1305
+chacha20poly1305 = { version = "0.9", default-features = false, optional = true }
 crypto_box_rs = { package = "crypto_box", version = "0.6", default-features = false, features = ["u64_backend"], optional = true }
 curve25519-dalek = { version = "3.1", default-features = false, features = ["u64_backend"], optional = true }
 ed25519-dalek = { version = "1.0", default-features = false, features = ["u64_backend"], optional = true }
@@ -73,4 +73,4 @@ serde-json-core = { version = "0.5", default-features = false }
 subtle = "2.4"
 sha2 = { version = "0.10", default-features = false }
 x25519-dalek = { version = "=1.1", default-features = false, features = ["u64_backend"], optional = true }
-zeroize = { version = "1.4", features = ["zeroize_derive"] }
+zeroize = { version = "1.5", features = ["zeroize_derive"] }

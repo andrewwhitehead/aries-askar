@@ -6,17 +6,26 @@ use percent_encoding::{percent_decode_str, utf8_percent_encode, NON_ALPHANUMERIC
 use crate::error::Error;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// Parsed representation of database connection URI
 pub struct Options<'a> {
+    /// The URI schema
     pub schema: Cow<'a, str>,
+    /// The authenticating user name
     pub user: Cow<'a, str>,
+    /// The authenticating user password
     pub password: Cow<'a, str>,
+    /// The host name
     pub host: Cow<'a, str>,
+    /// The path component
     pub path: Cow<'a, str>,
+    /// The query component
     pub query: HashMap<String, String>,
+    /// The fragment component
     pub fragment: Cow<'a, str>,
 }
 
 impl<'a> Options<'a> {
+    /// Parse a URI string into an Options structure
     pub fn parse_uri(uri: &str) -> Result<Options<'_>, Error> {
         let mut fragment_and_remain = uri.splitn(2, '#');
         let uri = fragment_and_remain.next().unwrap_or_default();
@@ -79,6 +88,7 @@ impl<'a> Options<'a> {
         })
     }
 
+    /// Convert an options structure back into a string
     pub fn into_uri(self) -> String {
         let mut uri = String::new();
         if !self.schema.is_empty() {
@@ -126,7 +136,9 @@ fn percent_encode_into(result: &mut String, s: &str) {
     push_iter_str(result, utf8_percent_encode(s, NON_ALPHANUMERIC))
 }
 
+/// A trait implemented by types that can be converted into Options
 pub trait IntoOptions<'a> {
+    /// Try to convert self into an Options structure
     fn into_options(self) -> Result<Options<'a>, Error>;
 }
 

@@ -8,39 +8,39 @@ use super::{
     error::set_last_error,
     key::LocalKeyHandle,
     result_list::{EntryListHandle, FfiEntryList, FfiKeyEntryList, KeyEntryListHandle},
+    tags::EntryTagSet,
     CallbackId, EnsureCallback, ErrorCode, ResourceHandle,
 };
 use crate::{
-    backend::{
-        any::{AnySession, AnyStore},
-        ManageBackend,
-    },
     error::Error,
-    future::spawn_ok,
-    protect::{generate_raw_store_key, PassKey, StoreKeyMethod},
-    storage::{Entry, EntryOperation, EntryTagSet, Scan, TagFilter},
+    storage::{
+        entry::{Entry, EntryOperation, Scan, TagFilter},
+        future::spawn_ok,
+        generate_raw_store_key, ManageBackend, PassKey, StoreKeyMethod,
+    },
+    store::{Session, Store},
 };
 
 new_sequence_handle!(StoreHandle, FFI_STORE_COUNTER);
 new_sequence_handle!(SessionHandle, FFI_SESSION_COUNTER);
 new_sequence_handle!(ScanHandle, FFI_SCAN_COUNTER);
 
-static FFI_STORES: Lazy<RwLock<BTreeMap<StoreHandle, Arc<AnyStore>>>> =
+static FFI_STORES: Lazy<RwLock<BTreeMap<StoreHandle, Store>>> =
     Lazy::new(|| RwLock::new(BTreeMap::new()));
-static FFI_SESSIONS: Lazy<StoreResourceMap<SessionHandle, AnySession>> =
+static FFI_SESSIONS: Lazy<StoreResourceMap<SessionHandle, Session>> =
     Lazy::new(StoreResourceMap::new);
 static FFI_SCANS: Lazy<StoreResourceMap<ScanHandle, Scan<'static, Entry>>> =
     Lazy::new(StoreResourceMap::new);
 
 impl StoreHandle {
-    pub async fn create(value: AnyStore) -> Self {
+    pub async fn create(value: Store) -> Self {
         let handle = Self::next();
         let mut repo = FFI_STORES.write().await;
-        repo.insert(handle, Arc::new(value));
+        repo.insert(handle, value);
         handle
     }
 
-    pub async fn load(&self) -> Result<Arc<AnyStore>, Error> {
+    pub async fn load(&self) -> Result<Store, Error> {
         FFI_STORES
             .read()
             .await
@@ -49,7 +49,7 @@ impl StoreHandle {
             .ok_or_else(|| err_msg!("Invalid store handle"))
     }
 
-    pub async fn remove(&self) -> Result<Arc<AnyStore>, Error> {
+    pub async fn remove(&self) -> Result<Store, Error> {
         FFI_STORES
             .write()
             .await
@@ -57,7 +57,7 @@ impl StoreHandle {
             .ok_or_else(|| err_msg!("Invalid store handle"))
     }
 
-    pub async fn replace(&self, store: Arc<AnyStore>) {
+    pub async fn replace(&self, store: Store) {
         FFI_STORES.write().await.insert(*self, store);
     }
 }
@@ -175,13 +175,13 @@ pub extern "C" fn askar_store_provision(
         );
         spawn_ok(async move {
             let result = async {
-                let store = spec_uri.provision_backend(
+                let backend = spec_uri.provision_backend(
                     key_method,
                     pass_key,
                     profile.as_deref(),
                     recreate != 0
                 ).await?;
-                Ok(StoreHandle::create(store).await)
+                Ok(StoreHandle::create(Store::new(backend)).await)
             }.await;
             cb.resolve(result);
         });
@@ -219,12 +219,12 @@ pub extern "C" fn askar_store_open(
         );
         spawn_ok(async move {
             let result = async {
-                let store = spec_uri.open_backend(
+                let backend = spec_uri.open_backend(
                     key_method,
                     pass_key,
                     profile.as_deref()
                 ).await?;
-                Ok(StoreHandle::create(store).await)
+                Ok(StoreHandle::create(Store::new(backend)).await)
             }.await;
             cb.resolve(result);
         });
@@ -366,18 +366,10 @@ pub extern "C" fn askar_store_rekey(
         );
         spawn_ok(async move {
             let result = async {
-                let store = handle.remove().await?;
-                match Arc::try_unwrap(store) {
-                    Ok(mut store) => {
-                        store.rekey(key_method, pass_key.as_ref()).await?;
-                        handle.replace(Arc::new(store)).await;
-                        Ok(())
-                    }
-                    Err(arc_store) => {
-                        handle.replace(arc_store).await;
-                        Err(err_msg!("Cannot re-key store with multiple references"))
-                    }
-                }
+                let mut store = handle.remove().await?;
+                let result = store.rekey(key_method, pass_key.as_ref()).await;
+                handle.replace(store).await;
+                result
             }.await;
             cb.resolve(result);
         });
@@ -409,7 +401,7 @@ pub extern "C" fn askar_store_close(
                 // been dropped yet (this will invalidate associated handles)
                 FFI_SESSIONS.remove_all(handle).await?;
                 FFI_SCANS.remove_all(handle).await?;
-                store.arc_close().await?;
+                store.close().await?;
                 info!("Closed store {}", handle);
                 Ok(())
             }.await;
