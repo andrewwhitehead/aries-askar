@@ -2,7 +2,6 @@
 
 use core::marker::PhantomData;
 
-use aead::generic_array::ArrayLength;
 use aes_core::{Aes128, Aes256};
 use block_modes::{
     block_padding::Pkcs7,
@@ -21,7 +20,7 @@ use crate::{
     error::Error,
     generic_array::{
         typenum::{consts, Unsigned},
-        GenericArray,
+        ArrayLength, GenericArray,
     },
 };
 

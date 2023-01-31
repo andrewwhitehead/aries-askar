@@ -5,7 +5,6 @@ use core::{
     ops::Add,
 };
 
-use aead::generic_array::GenericArray;
 use blake2::Digest;
 use bls12_381::{G1Affine, G1Projective, G2Affine, G2Projective, Scalar};
 use group::GroupEncoding;
@@ -15,7 +14,7 @@ use zeroize::{Zeroize, Zeroizing};
 
 use crate::generic_array::{
     typenum::{self, Unsigned, U144, U32, U48, U96},
-    ArrayLength,
+    ArrayLength, GenericArray,
 };
 
 use super::{BlsCurves, HasKeyAlg, KeyAlg};

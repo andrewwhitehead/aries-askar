@@ -2,7 +2,7 @@
 
 use core::fmt::{self, Debug, Formatter};
 
-use aead::{generic_array::ArrayLength, AeadCore, AeadInPlace, NewAead};
+use aead::{AeadCore, AeadInPlace, KeyInit, KeySizeUser};
 use aes_gcm::{Aes128Gcm, Aes256Gcm};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
@@ -12,7 +12,7 @@ use crate::{
     buffer::{ArrayKey, ResizeBuffer, Writer},
     encrypt::{KeyAeadInPlace, KeyAeadMeta, KeyAeadParams},
     error::Error,
-    generic_array::{typenum::Unsigned, GenericArray},
+    generic_array::{typenum::Unsigned, ArrayLength, GenericArray},
     jwk::{JwkEncoder, ToJwk},
     kdf::{FromKeyDerivation, FromKeyExchange, KeyDerivation, KeyExchange},
     random::KeyMaterial,
@@ -26,7 +26,7 @@ mod key_wrap;
 pub use key_wrap::{A128Kw, A256Kw};
 
 /// The 'kty' value of a symmetric key JWK
-pub static JWK_KEY_TYPE: &str = "oct";
+pub const JWK_KEY_TYPE: &str = "oct";
 
 /// Trait implemented by supported AES authenticated encryption algorithms
 pub trait AesType: 'static {
@@ -157,7 +157,7 @@ where
 pub type A128Gcm = Aes128Gcm;
 
 impl AesType for A128Gcm {
-    type KeySize = <Self as NewAead>::KeySize;
+    type KeySize = <Self as KeySizeUser>::KeySize;
 
     const ALG_TYPE: AesTypes = AesTypes::A128Gcm;
     const JWK_ALG: &'static str = "A128GCM";
@@ -167,7 +167,7 @@ impl AesType for A128Gcm {
 pub type A256Gcm = Aes256Gcm;
 
 impl AesType for A256Gcm {
-    type KeySize = <Self as NewAead>::KeySize;
+    type KeySize = <Self as KeySizeUser>::KeySize;
 
     const ALG_TYPE: AesTypes = AesTypes::A256Gcm;
     const JWK_ALG: &'static str = "A256GCM";
@@ -182,7 +182,7 @@ impl<T: AeadCore + AesType> KeyAeadMeta for AesKey<T> {
 // generic implementation applying to AesGcm
 impl<T> KeyAeadInPlace for AesKey<T>
 where
-    T: NewAead + AeadInPlace + AesType<KeySize = <T as NewAead>::KeySize>,
+    T: KeyInit + AeadInPlace + AesType<KeySize = <T as KeySizeUser>::KeySize>,
 {
     /// Encrypt a secret value in place, appending the verification tag
     fn encrypt_in_place(
@@ -194,7 +194,7 @@ where
         if nonce.len() != T::NonceSize::USIZE {
             return Err(err_msg!(InvalidNonce));
         }
-        let enc = <T as NewAead>::new(self.0.as_ref());
+        let enc = <T as KeyInit>::new(self.0.as_ref());
         let tag = enc
             .encrypt_in_place_detached(GenericArray::from_slice(nonce), aad, buffer.as_mut())
             .map_err(|_| err_msg!(Encryption, "AEAD encryption error"))?;
@@ -220,7 +220,7 @@ where
         let tag_start = buf_len - T::TagSize::USIZE;
         let mut tag = GenericArray::default();
         tag.clone_from_slice(&buffer.as_ref()[tag_start..]);
-        let enc = <T as NewAead>::new(self.0.as_ref());
+        let enc = <T as KeyInit>::new(self.0.as_ref());
         enc.decrypt_in_place_detached(
             GenericArray::from_slice(nonce),
             aad,
