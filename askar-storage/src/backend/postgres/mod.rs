@@ -31,6 +31,14 @@ use crate::{
     protect::{EntryEncryptor, KeyCache, PassKey, ProfileId, ProfileKey, StoreKeyMethod},
 };
 
+mod provision;
+pub use self::provision::PostgresStoreOptions;
+
+#[cfg(any(test, feature = "pg_test"))]
+mod test_db;
+#[cfg(any(test, feature = "pg_test"))]
+pub use self::test_db::TestDB;
+
 const COUNT_QUERY: &str = "SELECT COUNT(*) FROM items i
     WHERE profile_id = $1
     AND (kind = $2 OR $2 IS NULL)
@@ -74,12 +82,6 @@ const TAG_INSERT_QUERY: &str = "INSERT INTO items_tags
     (item_id, name, value, plaintext) VALUES ($1, $2, $3, $4)";
 const TAG_DELETE_QUERY: &str = "DELETE FROM items_tags
     WHERE item_id=$1";
-
-mod provision;
-pub use provision::PostgresStoreOptions;
-
-#[cfg(any(test, feature = "pg_test"))]
-pub mod test_db;
 
 /// A PostgreSQL database store
 pub struct PostgresBackend {

@@ -12,13 +12,10 @@ use super::{
     CallbackId, EnsureCallback, ErrorCode, ResourceHandle,
 };
 use crate::{
+    entry::{Entry, EntryOperation, Scan, TagFilter},
     error::Error,
-    storage::{
-        entry::{Entry, EntryOperation, Scan, TagFilter},
-        future::spawn_ok,
-        generate_raw_store_key, ManageBackend, PassKey, StoreKeyMethod,
-    },
-    store::{Session, Store},
+    future::spawn_ok,
+    store::{PassKey, Session, Store, StoreKeyMethod},
 };
 
 new_sequence_handle!(StoreHandle, FFI_STORE_COUNTER);
@@ -138,7 +135,7 @@ pub extern "C" fn askar_store_generate_raw_key(
             s if s.is_empty() => None,
             s => Some(s)
         };
-        let key = generate_raw_store_key(seed)?;
+        let key = Store::new_raw_key(seed)?;
         unsafe { *out = rust_string_to_c(key.to_string()); }
         Ok(ErrorCode::Success)
     }
@@ -175,13 +172,14 @@ pub extern "C" fn askar_store_provision(
         );
         spawn_ok(async move {
             let result = async {
-                let backend = spec_uri.provision_backend(
+                let store = Store::provision(
+                    spec_uri.as_str(),
                     key_method,
                     pass_key,
                     profile.as_deref(),
                     recreate != 0
                 ).await?;
-                Ok(StoreHandle::create(Store::new(backend)).await)
+                Ok(StoreHandle::create(store).await)
             }.await;
             cb.resolve(result);
         });
@@ -219,12 +217,13 @@ pub extern "C" fn askar_store_open(
         );
         spawn_ok(async move {
             let result = async {
-                let backend = spec_uri.open_backend(
+                let store = Store::open (
+                spec_uri.as_str(),
                     key_method,
                     pass_key,
                     profile.as_deref()
                 ).await?;
-                Ok(StoreHandle::create(Store::new(backend)).await)
+                Ok(StoreHandle::create(store).await)
             }.await;
             cb.resolve(result);
         });
@@ -249,10 +248,7 @@ pub extern "C" fn askar_store_remove(
             }
         );
         spawn_ok(async move {
-            let result = async {
-                let removed = spec_uri.remove_backend().await?;
-                Ok(removed)
-            }.await;
+            let result = Store::remove(spec_uri.as_str()).await;
             cb.resolve(result);
         });
         Ok(ErrorCode::Success)

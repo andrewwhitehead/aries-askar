@@ -3,7 +3,8 @@ use std::{ffi::CString, os::raw::c_char, ptr};
 use super::{
     handle::ArcHandle, key::LocalKeyHandle, secret::SecretBuffer, tags::EntryTagSet, ErrorCode,
 };
-use crate::{error::Error, kms::KeyEntry, storage::entry::Entry};
+use crate::{entry::Entry, error::Error, kms::KeyEntry};
+
 pub enum FfiResultList<R> {
     Single(R),
     Rows(Vec<R>),

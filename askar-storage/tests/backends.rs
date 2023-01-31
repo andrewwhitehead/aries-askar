@@ -347,10 +347,9 @@ mod sqlite {
 
 #[cfg(feature = "pg_test")]
 mod postgres {
-    use askar_storage::{
-        backend::{any::AnyBackend, postgres::test_db::TestDB},
-        future::block_on,
-    };
+    use askar_storage::any::AnyBackend;
+    use askar_storage::backend::postgres::TestDB;
+    use askar_storage::future::block_on;
     use std::future::Future;
 
     use super::*;

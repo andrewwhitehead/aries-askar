@@ -18,6 +18,8 @@ extern crate serde;
 pub use askar_crypto as crypto;
 #[doc(hidden)]
 pub use askar_storage as storage;
+#[doc(hidden)]
+pub use askar_storage::future;
 
 #[cfg(feature = "ffi")]
 mod ffi;
@@ -25,4 +27,4 @@ mod ffi;
 pub mod kms;
 
 mod store;
-pub use store::{Session, Store};
+pub use store::{entry, PassKey, Session, Store, StoreKeyMethod};

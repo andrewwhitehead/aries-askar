@@ -5,11 +5,13 @@ use crate::{
     kms::{KeyEntry, KeyParams, KmsCategory, LocalKey},
     storage::{
         any::{AnyBackend, AnyBackendSession},
-        backend::BackendSession,
+        backend::{BackendSession, ManageBackend},
         entry::{Entry, EntryKind, EntryOperation, EntryTag, Scan, TagFilter},
-        PassKey, StoreKeyMethod,
+        generate_raw_store_key,
     },
 };
+
+pub use crate::storage::{entry, PassKey, StoreKeyMethod};
 
 #[derive(Debug, Clone)]
 /// An instance of an opened store
@@ -18,6 +20,41 @@ pub struct Store(AnyBackend);
 impl Store {
     pub(crate) fn new(inner: AnyBackend) -> Self {
         Self(inner)
+    }
+
+    /// Provision a new store instance using a database URL
+    pub async fn provision(
+        db_url: &str,
+        key_method: StoreKeyMethod,
+        pass_key: PassKey<'_>,
+        profile: Option<&str>,
+        recreate: bool,
+    ) -> Result<Self, Error> {
+        let backend = db_url
+            .provision_backend(key_method, pass_key, profile, recreate)
+            .await?;
+        Ok(Self::new(backend))
+    }
+
+    /// Open a store instance from a database URL
+    pub async fn open(
+        db_url: &str,
+        key_method: Option<StoreKeyMethod>,
+        pass_key: PassKey<'_>,
+        profile: Option<&str>,
+    ) -> Result<Self, Error> {
+        let backend = db_url.open_backend(key_method, pass_key, profile).await?;
+        Ok(Self::new(backend))
+    }
+
+    /// Remove a store instance using a database URL
+    pub async fn remove(db_url: &str) -> Result<bool, Error> {
+        Ok(db_url.remove_backend().await?)
+    }
+
+    /// Generate a new raw store key
+    pub fn new_raw_key(seed: Option<&[u8]>) -> Result<PassKey<'static>, Error> {
+        Ok(generate_raw_store_key(seed)?)
     }
 
     /// Get the default profile name used when starting a scan or a session
@@ -33,7 +70,7 @@ impl Store {
     ) -> Result<(), Error> {
         match Arc::get_mut(&mut self.0) {
             Some(inner) => Ok(inner.rekey(method, pass_key).await?),
-            None => Err(err_msg!("Cannot re-key store with multiple references")),
+            None => Err(err_msg!("Cannot re-key a store with multiple references")),
         }
     }
 
@@ -85,6 +122,12 @@ impl Store {
     /// Close the store instance, waiting for any shutdown procedures to complete.
     pub async fn close(self) -> Result<(), Error> {
         Ok(self.0.close().await?)
+    }
+}
+
+impl From<AnyBackend> for Store {
+    fn from(backend: AnyBackend) -> Self {
+        Self::new(backend)
     }
 }
 

@@ -64,7 +64,7 @@ impl<T, F: Fn(Result<T, Error>)> Drop for EnsureCallback<T, F> {
 
 #[no_mangle]
 pub extern "C" fn askar_terminate() {
-    crate::storage::future::shutdown(Duration::from_secs(5));
+    crate::future::shutdown(Duration::from_secs(5));
 }
 
 #[no_mangle]

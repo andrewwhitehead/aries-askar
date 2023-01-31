@@ -6,7 +6,7 @@ use serde::{
     Deserialize, Deserializer, Serialize, Serializer,
 };
 
-use crate::storage::entry::EntryTag;
+use crate::entry::EntryTag;
 
 /// A wrapper type used for managing (de)serialization of tags
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]

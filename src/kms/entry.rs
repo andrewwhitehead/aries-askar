@@ -1,8 +1,8 @@
 use super::local_key::LocalKey;
 use crate::{
     crypto::{alg::AnyKey, buffer::SecretBytes, jwk::FromJwk},
+    entry::{Entry, EntryTag},
     error::Error,
-    storage::entry::{Entry, EntryTag},
 };
 
 /// Parameters defining a stored key
