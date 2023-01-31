@@ -4,10 +4,8 @@ use crate::{
     error::Error,
     kms::{KeyEntry, KeyParams, KmsCategory, LocalKey},
     storage::{
-        backend::{
-            any::{AnyBackend, AnyBackendSession},
-            BackendSession,
-        },
+        any::{AnyBackend, AnyBackendSession},
+        backend::BackendSession,
         entry::{Entry, EntryKind, EntryOperation, EntryTag, Scan, TagFilter},
         PassKey, StoreKeyMethod,
     },

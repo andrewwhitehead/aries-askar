@@ -9,10 +9,8 @@ use std::time::Duration;
 use super::provision::{init_db, reset_db, PostgresStoreOptions};
 use super::PostgresBackend;
 use crate::{
-    backend::{
-        any::{wrap_backend, AnyBackend},
-        db_utils::{init_keys, random_profile_name},
-    },
+    any::{into_any_backend, AnyBackend},
+    backend::db_utils::{init_keys, random_profile_name},
     error::Error,
     future::{sleep, spawn_ok, timeout, unblock},
     protect::{generate_raw_store_key, KeyCache, StoreKeyMethod},
@@ -70,7 +68,7 @@ impl TestDB {
 
         let mut key_cache = KeyCache::new(store_key);
         key_cache.add_profile_mut(default_profile.clone(), profile_id, profile_key);
-        let inst = wrap_backend(PostgresBackend::new(
+        let inst = into_any_backend(PostgresBackend::new(
             conn_pool,
             default_profile,
             key_cache,

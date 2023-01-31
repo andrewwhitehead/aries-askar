@@ -9,11 +9,6 @@ use crate::{
     protect::{PassKey, StoreKeyMethod},
 };
 
-#[cfg(feature = "any")]
-#[cfg_attr(docsrs, doc(cfg(feature = "any")))]
-/// Generic backend (from URI) support
-pub mod any;
-
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub(crate) mod db_utils;
 

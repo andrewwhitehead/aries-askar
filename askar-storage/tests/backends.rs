@@ -111,10 +111,8 @@ fn log_init() {
 
 #[cfg(feature = "sqlite")]
 mod sqlite {
-    use askar_storage::backend::{
-        any::{wrap_backend, AnyBackend},
-        sqlite::SqliteStoreOptions,
-    };
+    use askar_storage::any::{into_any_backend, AnyBackend};
+    use askar_storage::backend::sqlite::SqliteStoreOptions;
     use askar_storage::future::block_on;
     use askar_storage::{generate_raw_store_key, Backend, ManageBackend, StoreKeyMethod};
     use std::{future::Future, path::Path};
@@ -223,7 +221,7 @@ mod sqlite {
                 .await
                 .expect("Error provisioning sqlite store");
 
-            let db = wrap_backend(store);
+            let db = into_any_backend(store);
             super::utils::db_txn_contention(db.clone()).await;
             db.close().await.expect("Error closing sqlite store");
 
@@ -312,7 +310,7 @@ mod sqlite {
         log_init();
         let key = generate_raw_store_key(None).expect("Error generating store key");
         block_on(async move {
-            let db = wrap_backend(
+            let db = into_any_backend(
                 SqliteStoreOptions::in_memory()
                     .provision(StoreKeyMethod::RawKey, key, None, false)
                     .await

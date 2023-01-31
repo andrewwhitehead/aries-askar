@@ -1,3 +1,5 @@
+//! Generic backend support
+
 use std::{fmt::Debug, sync::Arc};
 
 use super::{Backend, BackendSession, ManageBackend};
@@ -19,7 +21,7 @@ use super::sqlite;
 pub type AnyBackend = Arc<dyn Backend<Session = AnyBackendSession>>;
 
 /// Wrap a backend instance into an AnyBackend
-pub fn wrap_backend(inst: impl Backend + 'static) -> AnyBackend {
+pub fn into_any_backend(inst: impl Backend + 'static) -> AnyBackend {
     Arc::new(WrapBackend(inst))
 }
 
@@ -169,14 +171,14 @@ impl<'a> ManageBackend<'a> for &'a str {
                 "postgres" => {
                     let opts = postgres::PostgresStoreOptions::new(opts)?;
                     let mgr = opts.open(method, pass_key, profile).await?;
-                    Ok(wrap_backend(mgr))
+                    Ok(into_any_backend(mgr))
                 }
 
                 #[cfg(feature = "sqlite")]
                 "sqlite" => {
                     let opts = sqlite::SqliteStoreOptions::new(opts)?;
                     let mgr = opts.open(method, pass_key, profile).await?;
-                    Ok(wrap_backend(mgr))
+                    Ok(into_any_backend(mgr))
                 }
 
                 _ => Err(err_msg!(
@@ -204,14 +206,14 @@ impl<'a> ManageBackend<'a> for &'a str {
                 "postgres" => {
                     let opts = postgres::PostgresStoreOptions::new(opts)?;
                     let mgr = opts.provision(method, pass_key, profile, recreate).await?;
-                    Ok(wrap_backend(mgr))
+                    Ok(into_any_backend(mgr))
                 }
 
                 #[cfg(feature = "sqlite")]
                 "sqlite" => {
                     let opts = sqlite::SqliteStoreOptions::new(opts)?;
                     let mgr = opts.provision(method, pass_key, profile, recreate).await?;
-                    Ok(wrap_backend(mgr))
+                    Ok(into_any_backend(mgr))
                 }
 
                 _ => Err(err_msg!(
