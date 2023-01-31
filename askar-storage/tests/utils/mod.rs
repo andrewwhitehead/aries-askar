@@ -1,8 +1,7 @@
-use std::{fmt::Debug, future::Future, ops::Deref, pin::Pin, sync::Arc};
-
 use askar_storage::{
+    any::AnyBackend,
     entry::{Entry, EntryKind, EntryOperation, EntryTag, TagFilter},
-    Backend, BackendSession, Error, ErrorKind,
+    BackendSession, ErrorKind,
 };
 
 use tokio::task::spawn;
@@ -22,22 +21,7 @@ const ERR_REMOVE_ALL: &str = "Error removing test rows";
 const ERR_SCAN: &str = "Error starting scan";
 const ERR_SCAN_NEXT: &str = "Error fetching scan rows";
 
-pub trait TestStore: Clone + Deref<Target = Self::DB> + Send + Sync {
-    type DB: Backend + Debug + 'static;
-
-    fn close(self) -> Pin<Box<dyn Future<Output = Result<(), Error>>>>;
-}
-
-impl<B: Backend + Debug + 'static> TestStore for Arc<B> {
-    type DB = B;
-
-    fn close(self) -> Pin<Box<dyn Future<Output = Result<(), Error>>>> {
-        let db = Arc::try_unwrap(self).unwrap();
-        Box::pin(async move { db.close().await })
-    }
-}
-
-pub async fn db_create_remove_profile(db: impl TestStore) {
+pub async fn db_create_remove_profile(db: AnyBackend) {
     let profile = db.create_profile(None).await.expect(ERR_PROFILE);
     assert!(db
         .remove_profile(profile)
@@ -49,7 +33,7 @@ pub async fn db_create_remove_profile(db: impl TestStore) {
         .expect("Error removing profile"),);
 }
 
-pub async fn db_fetch_fail(db: impl TestStore) {
+pub async fn db_fetch_fail(db: AnyBackend) {
     let mut conn = db.session(None, false).expect(ERR_SESSION);
     let result = conn
         .fetch(EntryKind::Item, "cat", "name", false)
@@ -58,7 +42,7 @@ pub async fn db_fetch_fail(db: impl TestStore) {
     assert!(result.is_none());
 }
 
-pub async fn db_insert_fetch(db: impl TestStore) {
+pub async fn db_insert_fetch(db: AnyBackend) {
     let test_row = Entry::new(
         "category",
         "name",
@@ -104,7 +88,7 @@ pub async fn db_insert_fetch(db: impl TestStore) {
     assert_eq!(rows[0], test_row);
 }
 
-pub async fn db_insert_duplicate(db: impl TestStore) {
+pub async fn db_insert_duplicate(db: AnyBackend) {
     let test_row = Entry::new("category", "name", "value", Vec::new());
 
     let mut conn = db.session(None, false).expect(ERR_SESSION);
@@ -136,7 +120,7 @@ pub async fn db_insert_duplicate(db: impl TestStore) {
     assert_eq!(err.kind(), ErrorKind::Duplicate);
 }
 
-pub async fn db_insert_remove(db: impl TestStore) {
+pub async fn db_insert_remove(db: AnyBackend) {
     let test_row = Entry::new("category", "name", "value", Vec::new());
 
     let mut conn = db.session(None, false).expect(ERR_SESSION);
@@ -166,7 +150,7 @@ pub async fn db_insert_remove(db: impl TestStore) {
     .expect(ERR_REQ_ROW);
 }
 
-pub async fn db_remove_missing(db: impl TestStore) {
+pub async fn db_remove_missing(db: AnyBackend) {
     let mut conn = db.session(None, false).expect(ERR_SESSION);
 
     let err = conn
@@ -184,7 +168,7 @@ pub async fn db_remove_missing(db: impl TestStore) {
     assert_eq!(err.kind(), ErrorKind::NotFound);
 }
 
-pub async fn db_replace_fetch(db: impl TestStore) {
+pub async fn db_replace_fetch(db: AnyBackend) {
     let test_row = Entry::new("category", "name", "value", Vec::new());
 
     let mut conn = db.session(None, false).expect(ERR_SESSION);
@@ -228,7 +212,7 @@ pub async fn db_replace_fetch(db: impl TestStore) {
     assert_eq!(row, replace_row);
 }
 
-pub async fn db_replace_missing(db: impl TestStore) {
+pub async fn db_replace_missing(db: AnyBackend) {
     let test_row = Entry::new("category", "name", "value", Vec::new());
 
     let mut conn = db.session(None, false).expect(ERR_SESSION);
@@ -248,7 +232,7 @@ pub async fn db_replace_missing(db: impl TestStore) {
     assert_eq!(err.kind(), ErrorKind::NotFound);
 }
 
-pub async fn db_count(db: impl TestStore) {
+pub async fn db_count(db: AnyBackend) {
     let category = "category".to_string();
     let test_rows = vec![Entry::new(&category, "name", "value", Vec::new())];
 
@@ -283,7 +267,7 @@ pub async fn db_count(db: impl TestStore) {
     assert_eq!(count, 0);
 }
 
-pub async fn db_count_exist(db: impl TestStore) {
+pub async fn db_count_exist(db: AnyBackend) {
     let test_row = Entry::new(
         "category",
         "name",
@@ -448,7 +432,7 @@ pub async fn db_count_exist(db: impl TestStore) {
     );
 }
 
-pub async fn db_scan(db: impl TestStore) {
+pub async fn db_scan(db: AnyBackend) {
     let category = "category".to_string();
     let test_rows = vec![Entry::new(
         &category,
@@ -512,7 +496,7 @@ pub async fn db_scan(db: impl TestStore) {
     assert_eq!(rows, None);
 }
 
-pub async fn db_remove_all(db: impl TestStore) {
+pub async fn db_remove_all(db: AnyBackend) {
     let test_rows = vec![
         Entry::new(
             "category",
@@ -575,7 +559,7 @@ pub async fn db_remove_all(db: impl TestStore) {
     assert_eq!(removed, 2);
 }
 
-pub async fn db_txn_rollback(db: impl TestStore) {
+pub async fn db_txn_rollback(db: AnyBackend) {
     let test_row = Entry::new("category", "name", "value", Vec::new());
 
     let mut conn = db.session(None, true).expect(ERR_TRANSACTION);
@@ -605,7 +589,7 @@ pub async fn db_txn_rollback(db: impl TestStore) {
     assert_eq!(row, None);
 }
 
-pub async fn db_txn_drop(db: impl TestStore) {
+pub async fn db_txn_drop(db: AnyBackend) {
     let test_row = Entry::new("category", "name", "value", Vec::new());
 
     let mut conn = db
@@ -636,7 +620,7 @@ pub async fn db_txn_drop(db: impl TestStore) {
 }
 
 // test that session does NOT have transaction rollback behaviour
-pub async fn db_session_drop(db: impl TestStore) {
+pub async fn db_session_drop(db: AnyBackend) {
     let test_row = Entry::new("category", "name", "value", Vec::new());
 
     let mut conn = db.session(None, false).expect(ERR_SESSION);
@@ -664,7 +648,7 @@ pub async fn db_session_drop(db: impl TestStore) {
     assert_eq!(row, Some(test_row));
 }
 
-pub async fn db_txn_commit(db: impl TestStore) {
+pub async fn db_txn_commit(db: AnyBackend) {
     let test_row = Entry::new("category", "name", "value", Vec::new());
 
     let mut conn = db.session(None, true).expect(ERR_TRANSACTION);
@@ -692,7 +676,7 @@ pub async fn db_txn_commit(db: impl TestStore) {
     assert_eq!(row, Some(test_row));
 }
 
-pub async fn db_txn_fetch_for_update(db: impl TestStore) {
+pub async fn db_txn_fetch_for_update(db: AnyBackend) {
     let test_row = Entry::new("category", "name", "value", Vec::new());
 
     let mut conn = db.session(None, true).expect(ERR_TRANSACTION);
@@ -734,7 +718,7 @@ pub async fn db_txn_fetch_for_update(db: impl TestStore) {
     conn.close(true).await.expect(ERR_COMMIT);
 }
 
-pub async fn db_txn_contention(db: impl TestStore + 'static) {
+pub async fn db_txn_contention(db: AnyBackend) {
     let test_row = Entry::new(
         "category",
         "count",
@@ -764,7 +748,7 @@ pub async fn db_txn_contention(db: impl TestStore + 'static) {
     const TASKS: usize = 10;
     const INC: usize = 1000;
 
-    async fn inc(db: impl TestStore, category: String, name: String) -> Result<(), &'static str> {
+    async fn inc(db: AnyBackend, category: String, name: String) -> Result<(), &'static str> {
         // try to avoid panics in this section, as they will be raised on a tokio worker thread
         for _ in 0..INC {
             let mut conn = db.session(None, true).expect(ERR_TRANSACTION);

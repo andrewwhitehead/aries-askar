@@ -10,8 +10,8 @@ use super::provision::{init_db, reset_db, PostgresStoreOptions};
 use super::PostgresBackend;
 use crate::{
     backend::{
+        any::{wrap_backend, AnyBackend},
         db_utils::{init_keys, random_profile_name},
-        Backend,
     },
     error::Error,
     future::{sleep, spawn_ok, timeout, unblock},
@@ -21,25 +21,25 @@ use crate::{
 #[derive(Debug)]
 /// Postgres test database wrapper instance
 pub struct TestDB {
-    inst: Option<PostgresBackend>,
+    inst: Option<AnyBackend>,
     lock_txn: Option<PgConnection>,
 }
 
 impl TestDB {
+    /// Access the backend instance
+    pub fn backend(&self) -> AnyBackend {
+        self.inst.clone().expect("Database not opened")
+    }
+
     /// Provision a new instance of the test database.
     /// This method blocks until the database lock can be acquired.
-    pub async fn provision() -> Result<TestDB, Error> {
-        let path = match std::env::var("POSTGRES_URL") {
-            Ok(p) if !p.is_empty() => p,
-            _ => panic!("'POSTGRES_URL' must be defined"),
-        };
-
+    pub async fn provision(db_url: &str) -> Result<TestDB, Error> {
         let key = generate_raw_store_key(None)?;
         let (profile_key, enc_profile_key, store_key, store_key_ref) =
             unblock(|| init_keys(StoreKeyMethod::RawKey, key)).await?;
         let default_profile = random_profile_name();
 
-        let opts = PostgresStoreOptions::new(path.as_str())?;
+        let opts = PostgresStoreOptions::new(db_url)?;
         let conn_pool = opts.create_db_pool().await?;
 
         // we hold a transaction open with a fixed advisory lock value.
@@ -70,8 +70,13 @@ impl TestDB {
 
         let mut key_cache = KeyCache::new(store_key);
         key_cache.add_profile_mut(default_profile.clone(), profile_id, profile_key);
-        let inst =
-            PostgresBackend::new(conn_pool, default_profile, key_cache, opts.host, opts.name);
+        let inst = wrap_backend(PostgresBackend::new(
+            conn_pool,
+            default_profile,
+            key_cache,
+            opts.host,
+            opts.name,
+        ));
 
         Ok(TestDB {
             inst: Some(inst),
@@ -81,7 +86,7 @@ impl TestDB {
 
     async fn close_internal(
         mut lock_txn: Option<PgConnection>,
-        mut inst: Option<PostgresBackend>,
+        mut inst: Option<AnyBackend>,
     ) -> Result<(), Error> {
         if let Some(lock_txn) = lock_txn.take() {
             lock_txn.close().await?;
@@ -103,14 +108,6 @@ impl TestDB {
     pub async fn close(mut self) -> Result<(), Error> {
         Self::close_internal(self.lock_txn.take(), self.inst.take()).await?;
         Ok(())
-    }
-}
-
-impl std::ops::Deref for TestDB {
-    type Target = PostgresBackend;
-
-    fn deref(&self) -> &Self::Target {
-        self.inst.as_ref().unwrap()
     }
 }
 

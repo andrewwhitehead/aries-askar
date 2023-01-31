@@ -18,14 +18,13 @@ use super::sqlite;
 /// A dynamic store backend instance
 pub type AnyBackend = Arc<dyn Backend<Session = AnyBackendSession>>;
 
+/// Wrap a backend instance into an AnyBackend
+pub fn wrap_backend(inst: impl Backend + 'static) -> AnyBackend {
+    Arc::new(WrapBackend(inst))
+}
+
 #[derive(Debug)]
 struct WrapBackend<B: Backend>(B);
-
-impl<B: Backend + 'static> WrapBackend<B> {
-    pub fn new_arc(inst: B) -> AnyBackend {
-        Arc::new(Self(inst))
-    }
-}
 
 impl<B: Backend> Backend for WrapBackend<B> {
     type Session = AnyBackendSession;
@@ -170,14 +169,14 @@ impl<'a> ManageBackend<'a> for &'a str {
                 "postgres" => {
                     let opts = postgres::PostgresStoreOptions::new(opts)?;
                     let mgr = opts.open(method, pass_key, profile).await?;
-                    Ok(WrapBackend::new_arc(mgr))
+                    Ok(wrap_backend(mgr))
                 }
 
                 #[cfg(feature = "sqlite")]
                 "sqlite" => {
                     let opts = sqlite::SqliteStoreOptions::new(opts)?;
                     let mgr = opts.open(method, pass_key, profile).await?;
-                    Ok(WrapBackend::new_arc(mgr))
+                    Ok(wrap_backend(mgr))
                 }
 
                 _ => Err(err_msg!(
@@ -205,14 +204,14 @@ impl<'a> ManageBackend<'a> for &'a str {
                 "postgres" => {
                     let opts = postgres::PostgresStoreOptions::new(opts)?;
                     let mgr = opts.provision(method, pass_key, profile, recreate).await?;
-                    Ok(WrapBackend::new_arc(mgr))
+                    Ok(wrap_backend(mgr))
                 }
 
                 #[cfg(feature = "sqlite")]
                 "sqlite" => {
                     let opts = sqlite::SqliteStoreOptions::new(opts)?;
                     let mgr = opts.provision(method, pass_key, profile, recreate).await?;
-                    Ok(WrapBackend::new_arc(mgr))
+                    Ok(wrap_backend(mgr))
                 }
 
                 _ => Err(err_msg!(

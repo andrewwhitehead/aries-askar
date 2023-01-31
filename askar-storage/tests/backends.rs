@@ -5,179 +5,102 @@ mod utils;
 const ERR_CLOSE: &str = "Error closing database";
 
 macro_rules! backend_tests {
-    ($init:expr) => {
-        use askar_storage::future::block_on;
-        use std::sync::Arc;
-        use $crate::utils::TestStore;
-
+    ($run:expr) => {
         #[test]
         fn init() {
-            block_on(async {
-                let db = $init.await;
-                db.close().await.expect(ERR_CLOSE);
-            });
+            $run(|db| async move {
+                let _ = db;
+            })
         }
 
         #[test]
         fn create_remove_profile() {
-            block_on(async {
-                let db = $init.await;
-                super::utils::db_create_remove_profile(db.clone()).await;
-                db.close().await.expect(ERR_CLOSE);
-            })
+            $run(super::utils::db_create_remove_profile)
         }
 
         #[test]
         fn fetch_fail() {
-            block_on(async {
-                let db = $init.await;
-                super::utils::db_fetch_fail(db.clone()).await;
-                db.close().await.expect(ERR_CLOSE);
-            })
+            $run(super::utils::db_fetch_fail)
         }
 
         #[test]
         fn insert_fetch() {
-            block_on(async {
-                let db = $init.await;
-                super::utils::db_insert_fetch(db.clone()).await;
-                db.close().await.expect(ERR_CLOSE);
-            })
+            $run(super::utils::db_insert_fetch)
         }
 
         #[test]
         fn insert_duplicate() {
-            block_on(async {
-                let db = $init.await;
-                super::utils::db_insert_duplicate(db.clone()).await;
-                db.close().await.expect(ERR_CLOSE);
-            })
+            $run(super::utils::db_insert_duplicate)
         }
 
         #[test]
         fn insert_remove() {
-            block_on(async {
-                let db = $init.await;
-                super::utils::db_insert_remove(db.clone()).await;
-                db.close().await.expect(ERR_CLOSE);
-            })
+            $run(super::utils::db_insert_remove)
         }
 
         #[test]
         fn remove_missing() {
-            block_on(async {
-                let db = $init.await;
-                super::utils::db_remove_missing(db.clone()).await;
-                db.close().await.expect(ERR_CLOSE);
-            })
+            $run(super::utils::db_remove_missing)
         }
 
         #[test]
         fn replace_fetch() {
-            block_on(async {
-                let db = $init.await;
-                super::utils::db_replace_fetch(db.clone()).await;
-                db.close().await.expect(ERR_CLOSE);
-            })
+            $run(super::utils::db_replace_fetch)
         }
 
         #[test]
         fn replace_missing() {
-            block_on(async {
-                let db = $init.await;
-                super::utils::db_replace_missing(db.clone()).await;
-                db.close().await.expect(ERR_CLOSE);
-            })
+            $run(super::utils::db_replace_missing)
         }
 
         #[test]
         fn count() {
-            block_on(async {
-                let db = $init.await;
-                super::utils::db_count(db.clone()).await;
-                db.close().await.expect(ERR_CLOSE);
-            })
+            $run(super::utils::db_count)
         }
 
         #[test]
         fn count_exist() {
-            block_on(async {
-                let db = $init.await;
-                super::utils::db_count_exist(db.clone()).await;
-                db.close().await.expect(ERR_CLOSE);
-            })
+            $run(super::utils::db_count_exist)
         }
 
         #[test]
         fn scan() {
-            block_on(async {
-                let db = $init.await;
-                super::utils::db_scan(db.clone()).await;
-                db.close().await.expect(ERR_CLOSE);
-            })
+            $run(super::utils::db_scan)
         }
 
         #[test]
         fn remove_all() {
-            block_on(async {
-                let db = $init.await;
-                super::utils::db_remove_all(db.clone()).await;
-                db.close().await.expect(ERR_CLOSE);
-            })
+            $run(super::utils::db_remove_all)
         }
 
         #[test]
         fn txn_rollback() {
-            block_on(async {
-                let db = $init.await;
-                super::utils::db_txn_rollback(db.clone()).await;
-                db.close().await.expect(ERR_CLOSE);
-            })
+            $run(super::utils::db_txn_rollback)
         }
 
         #[test]
         fn txn_drop() {
-            block_on(async {
-                let db = $init.await;
-                super::utils::db_txn_drop(db.clone()).await;
-                db.close().await.expect(ERR_CLOSE);
-            })
+            $run(super::utils::db_txn_drop)
         }
 
         #[test]
         fn session_drop() {
-            block_on(async {
-                let db = $init.await;
-                super::utils::db_session_drop(db.clone()).await;
-                db.close().await.expect(ERR_CLOSE);
-            })
+            $run(super::utils::db_session_drop)
         }
 
         #[test]
         fn txn_commit() {
-            block_on(async {
-                let db = $init.await;
-                super::utils::db_txn_commit(db.clone()).await;
-                db.close().await.expect(ERR_CLOSE);
-            })
+            $run(super::utils::db_txn_commit)
         }
 
         #[test]
         fn txn_fetch_for_update() {
-            block_on(async {
-                let db = $init.await;
-                super::utils::db_txn_fetch_for_update(db.clone()).await;
-                db.close().await.expect(ERR_CLOSE);
-            })
+            $run(super::utils::db_txn_fetch_for_update)
         }
 
         #[test]
         fn txn_contention() {
-            block_on(async {
-                let db = $init.await;
-                super::utils::db_txn_contention(db.clone()).await;
-                db.close().await.expect(ERR_CLOSE);
-            })
+            $run(super::utils::db_txn_contention)
         }
     };
 }
@@ -188,9 +111,13 @@ fn log_init() {
 
 #[cfg(feature = "sqlite")]
 mod sqlite {
-    use askar_storage::backend::sqlite::{SqliteBackend, SqliteStoreOptions};
+    use askar_storage::backend::{
+        any::{wrap_backend, AnyBackend},
+        sqlite::SqliteStoreOptions,
+    };
+    use askar_storage::future::block_on;
     use askar_storage::{generate_raw_store_key, Backend, ManageBackend, StoreKeyMethod};
-    use std::path::Path;
+    use std::{future::Future, path::Path};
 
     use super::*;
 
@@ -296,7 +223,7 @@ mod sqlite {
                 .await
                 .expect("Error provisioning sqlite store");
 
-            let db = std::sync::Arc::new(store);
+            let db = wrap_backend(store);
             super::utils::db_txn_contention(db.clone()).await;
             db.close().await.expect("Error closing sqlite store");
 
@@ -377,18 +304,26 @@ mod sqlite {
         });
     }
 
-    async fn init_db() -> Arc<SqliteBackend> {
+    fn with_sqlite_in_memory<F, G>(f: F)
+    where
+        F: FnOnce(AnyBackend) -> G,
+        G: Future<Output = ()>,
+    {
         log_init();
-        let key = generate_raw_store_key(None).expect("Error creating raw key");
-        Arc::new(
-            SqliteStoreOptions::in_memory()
-                .provision(StoreKeyMethod::RawKey, key, None, false)
-                .await
-                .expect("Error provisioning sqlite store"),
-        )
+        let key = generate_raw_store_key(None).expect("Error generating store key");
+        block_on(async move {
+            let db = wrap_backend(
+                SqliteStoreOptions::in_memory()
+                    .provision(StoreKeyMethod::RawKey, key, None, false)
+                    .await
+                    .expect("Error provisioning sqlite store"),
+            );
+            f(db.clone()).await;
+            db.close().await.expect(ERR_CLOSE);
+        })
     }
 
-    backend_tests!(init_db());
+    backend_tests!(with_sqlite_in_memory);
 
     #[test]
     fn provision_from_str() {
@@ -414,39 +349,32 @@ mod sqlite {
 
 #[cfg(feature = "pg_test")]
 mod postgres {
-    use aries_askar::{backend::postgres::test_db::TestDB, postgres::PostgresStore, Store};
-    use std::{future::Future, ops::Deref, pin::Pin};
+    use askar_storage::{
+        backend::{any::AnyBackend, postgres::test_db::TestDB},
+        future::block_on,
+    };
+    use std::future::Future;
 
     use super::*;
 
-    #[derive(Clone, Debug)]
-    struct Wrap(Arc<TestDB>);
-
-    impl Deref for Wrap {
-        type Target = Store<PostgresStore>;
-
-        fn deref(&self) -> &Self::Target {
-            &**self.0
-        }
-    }
-
-    impl TestStore for Wrap {
-        type DB = PostgresStore;
-
-        fn close(self) -> Pin<Box<dyn Future<Output = Result<(), aries_askar::Error>>>> {
-            let db = Arc::try_unwrap(self.0).unwrap();
-            Box::pin(db.close())
-        }
-    }
-
-    async fn init_db() -> Wrap {
+    fn with_postgres<F, G>(f: F)
+    where
+        F: FnOnce(AnyBackend) -> G,
+        G: Future<Output = ()>,
+    {
+        let db_url = match std::env::var("POSTGRES_URL") {
+            Ok(p) if !p.is_empty() => p,
+            _ => panic!("'POSTGRES_URL' must be defined"),
+        };
         log_init();
-        Wrap(Arc::new(
-            TestDB::provision()
+        block_on(async move {
+            let db = TestDB::provision(db_url.as_str())
                 .await
-                .expect("Error provisioning postgres test database"),
-        ))
+                .expect("Error provisioning postgres test database");
+            f(db.backend()).await;
+            db.close().await.expect(ERR_CLOSE);
+        })
     }
 
-    backend_tests!(init_db());
+    backend_tests!(with_postgres);
 }
