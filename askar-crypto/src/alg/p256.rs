@@ -1,7 +1,5 @@
 //! Elliptic curve ECDH and ECDSA support on curve secp256r1
 
-use core::convert::{TryFrom, TryInto};
-
 use p256::{
     ecdsa::{
         signature::{Signer, Verifier},
@@ -87,7 +85,7 @@ impl P256KeyPair {
     pub fn sign(&self, message: &[u8]) -> Option<[u8; ES256_SIGNATURE_LENGTH]> {
         if let Some(skey) = self.to_signing_key() {
             let sig: Signature = skey.sign(message);
-            let sigb: [u8; 64] = sig.as_ref().try_into().unwrap();
+            let sigb: [u8; 64] = sig.to_bytes().try_into().unwrap();
             Some(sigb)
         } else {
             None
@@ -310,7 +308,7 @@ impl KeyExchange for P256KeyPair {
         match self.secret.as_ref() {
             Some(sk) => {
                 let xk = diffie_hellman(sk.to_nonzero_scalar(), other.public.as_affine());
-                out.buffer_write(xk.as_bytes().as_ref())?;
+                out.buffer_write(xk.raw_secret_bytes().as_ref())?;
                 Ok(())
             }
             None => Err(err_msg!(MissingSecretKey)),

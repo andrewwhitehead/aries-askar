@@ -53,20 +53,20 @@ arbitrary = { version = "1.0", optional = true, features = ["derive"] }
 argon2 = { version = "0.3", default-features = false, features = ["alloc", "password-hash"], optional = true }
 base64 = { version = "0.13", default-features = false }
 blake2 = { version = "0.10", default-features = false }
-bls12_381 = { version = "0.6", default-features = false, features = ["groups", "zeroize"], optional = true }
+bls12_381 = { version = "0.7", default-features = false, features = ["groups", "zeroize"], optional = true }
 cbc = { version = "0.1", optional = true }
 chacha20 = { version = "0.9" }  # should match dependency of chacha20poly1305
 chacha20poly1305 = { version = "0.10", default-features = false, optional = true }
 crypto_box_rs = { package = "crypto_box", version = "0.8", default-features = false, optional = true }
 curve25519-dalek = { version = "3.1", default-features = false, features = ["u64_backend"], optional = true }
 ed25519-dalek = { version = "1.0", default-features = false, features = ["u64_backend"], optional = true }
-elliptic-curve = { version = "0.11", optional = true }
+elliptic-curve = { version = "0.12", optional = true }
 digest = "0.10"
-group = "0.11"
+group = "0.12"
 hkdf = { version = "0.12", optional = true }
 hmac = { version = "0.12", optional = true }
-k256 = { version = "0.10", default-features = false, features = ["arithmetic", "ecdsa", "ecdh", "sha256"], optional = true }
-p256 = { version = "0.10", default-features = false, features = ["arithmetic", "ecdsa", "ecdh"], optional = true }
+k256 = { version = "0.12", default-features = false, features = ["arithmetic", "ecdsa", "ecdh", "sha256"], optional = true }
+p256 = { version = "0.12", default-features = false, features = ["arithmetic", "ecdsa", "ecdh"], optional = true }
 rand = { version = "0.8", default-features = false }
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 serde-json-core = { version = "0.5", default-features = false }

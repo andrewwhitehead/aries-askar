@@ -22,8 +22,8 @@ getrandom = ["askar-crypto/getrandom", "rand/getrandom"]
 
 [dependencies]
 askar-crypto = { version = "0.2.1", default-features = false, features = ["bls"], path = "../askar-crypto" }
-bls12_381 = { version = "0.6", default-features = false, features = ["experimental", "groups", "pairings"] }
-group = { version = "0.11", default-features = false }
+bls12_381 = { version = "0.7", default-features = false, features = ["experimental", "groups", "pairings"] }
+group = { version = "0.12", default-features = false }
 heapless = "0.7"
 rand = { version = "0.8", default-features = false }
 sha3 = { version = "0.9", default-features = false }
