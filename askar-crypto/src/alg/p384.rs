@@ -1,4 +1,4 @@
-//! Elliptic curve ECDH and ECDSA support on curve secp256r1
+//! Elliptic curve ECDH and ECDSA support on curve secp384r1
 
 use super::ec_common;
 use crate::{
@@ -6,22 +6,23 @@ use crate::{
     sign::SignatureType,
 };
 
-pub use p256::NistP256;
+pub use p384::NistP384;
 
-/// The 'crv' value of a P-256 key JWK
-pub const JWK_CURVE: &str = "P-256";
+/// The 'crv' value of a P-384 key JWK
+pub const JWK_CURVE: &str = "P-384";
 
-/// The 'kty' value of a P-256 key JWK
+/// The 'kty' value of a P-384 key JWK
 pub const JWK_KEY_TYPE: &str = ec_common::JWK_KEY_TYPE;
 
 impl_ec_key_type!(
-    NistP256,
-    EcCurves::Secp256r1,
-    SignatureType::ES256,
+    NistP384,
+    EcCurves::Secp384r1,
+    SignatureType::ES384,
     JWK_CURVE
 );
-/// A P-256 (secp256r1) public key or keypair
-pub type P256KeyPair = EcKeyPair<NistP256>;
+
+/// A P-384 (secp384r1) public key or keypair
+pub type P384KeyPair = EcKeyPair<NistP384>;
 
 #[cfg(test)]
 mod tests {
@@ -36,20 +37,20 @@ mod tests {
     #[cfg(feature = "alloc")]
     #[test]
     fn jwk_expected() {
-        // from JWS RFC https://tools.ietf.org/html/rfc7515
-        // {"kty":"EC",
-        // "crv":"P-256",
-        // "x":"f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
-        // "y":"x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0",
-        // "d":"jpsQnnGQmL-YBIffH1136cspYG6-0iY7X1fCE9-E9LI"
-        // }
-        let test_pvt_b64 = "jpsQnnGQmL-YBIffH1136cspYG6-0iY7X1fCE9-E9LI";
+        // from: https://connect2id.com/products/server/docs/config/jwk-set
+        // {"kty": "EC",
+        // "crv": "P-384",
+        // "kid": "9nHY",
+        // "d": "3zS7ECyMqZlENI9Xk6TqptEbZtoso3LmO4Hc9zs-VytU3Sgd8yHw2uUePAkGv_Fu",
+        // "x": "JPKhjhE0Bj579Mgj3Cn3ERGA8fKVYoGOaV9BPKhtnEobphf8w4GSeigMesL-038W",
+        // "y": "UbJa1QRX7fo9LxSlh7FOH5ABT5lEtiQeQUcX9BW0bpJFlEVGqwec80tYLdOIl59M"}
+        let test_pvt_b64 = "3zS7ECyMqZlENI9Xk6TqptEbZtoso3LmO4Hc9zs-VytU3Sgd8yHw2uUePAkGv_Fu";
         let test_pub_b64 = (
-            "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
-            "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0",
+            "JPKhjhE0Bj579Mgj3Cn3ERGA8fKVYoGOaV9BPKhtnEobphf8w4GSeigMesL-038W",
+            "UbJa1QRX7fo9LxSlh7FOH5ABT5lEtiQeQUcX9BW0bpJFlEVGqwec80tYLdOIl59M",
         );
         let test_pvt = base64::decode_config(test_pvt_b64, base64::URL_SAFE).unwrap();
-        let sk = P256KeyPair::from_secret_bytes(&test_pvt).expect("Error creating signing key");
+        let sk = P384KeyPair::from_secret_bytes(&test_pvt).expect("Error creating signing key");
 
         let jwk = sk.to_jwk_public(None).expect("Error converting key to JWK");
         let jwk = JwkParts::try_from_str(&jwk).expect("Error parsing JWK");
@@ -58,7 +59,7 @@ mod tests {
         assert_eq!(jwk.x, test_pub_b64.0);
         assert_eq!(jwk.y, test_pub_b64.1);
         assert_eq!(jwk.d, None);
-        let pk_load = P256KeyPair::from_jwk_parts(jwk).unwrap();
+        let pk_load = P384KeyPair::from_jwk_parts(jwk).unwrap();
         assert_eq!(sk.to_public_bytes(), pk_load.to_public_bytes());
 
         let jwk = sk.to_jwk_secret(None).expect("Error converting key to JWK");
@@ -68,7 +69,7 @@ mod tests {
         assert_eq!(jwk.x, test_pub_b64.0);
         assert_eq!(jwk.y, test_pub_b64.1);
         assert_eq!(jwk.d, test_pvt_b64);
-        let sk_load = P256KeyPair::from_jwk_parts(jwk).unwrap();
+        let sk_load = P384KeyPair::from_jwk_parts(jwk).unwrap();
         assert_eq!(
             sk.to_keypair_bytes().unwrap(),
             sk_load.to_keypair_bytes().unwrap()
@@ -78,18 +79,18 @@ mod tests {
     #[cfg(feature = "alloc")]
     #[test]
     fn jwk_thumbprint() {
-        let pk = P256KeyPair::from_jwk(
+        let pk = P384KeyPair::from_jwk(
             r#"{
                 "kty": "EC",
-                "crv": "P-256",
-                "x": "tDeeYABgKEAbWicYPCEEI8sP4SRIhHKcHDW7VqrB4LA",
-                "y": "J08HOoIZ0rX2Me3bNFZUltfxIk1Hrc8FsLu8VaSxsMI"
+                "crv": "P-384",
+                "x": "JPKhjhE0Bj579Mgj3Cn3ERGA8fKVYoGOaV9BPKhtnEobphf8w4GSeigMesL-038W",
+                "y": "UbJa1QRX7fo9LxSlh7FOH5ABT5lEtiQeQUcX9BW0bpJFlEVGqwec80tYLdOIl59M"
             }"#,
         )
         .unwrap();
         assert_eq!(
             pk.to_jwk_thumbprint(None).unwrap(),
-            "8fm8079s3nu4FLV_7dVJoJ69A8XCXn7Za2mtaWCnxR4"
+            "UMwnrC5x2WbX68PQyjxwcK7o5_DqQQiGysnByE5im0Y"
         );
     }
 
@@ -97,15 +98,16 @@ mod tests {
     fn sign_verify_expected() {
         let test_msg = b"This is a dummy message for use with tests";
         let test_sig = &hex!(
-            "241f765f19d4e6148452f2249d2fa69882244a6ad6e70aadb8848a6409d20712
-            4e85faf9587100247de7bdace13a3073b47ec8a531ca91c1375b2b6134344413"
+            "db6331628eaa7da84abe72b485333e116956efa616e5897abd67c038e87af89a
+            85ba42c9a34c7801153d705036dd852267b7f6ab286c8d60d6a2a46beaa30c3e
+            8339a0c9840b14084574bf25051e583b316e2b85f8adace602bf1169e67969c2"
         );
         let test_pvt = base64::decode_config(
-            "jpsQnnGQmL-YBIffH1136cspYG6-0iY7X1fCE9-E9LI",
+            "3zS7ECyMqZlENI9Xk6TqptEbZtoso3LmO4Hc9zs-VytU3Sgd8yHw2uUePAkGv_Fu",
             base64::URL_SAFE_NO_PAD,
         )
         .unwrap();
-        let kp = P256KeyPair::from_secret_bytes(&test_pvt).unwrap();
+        let kp = P384KeyPair::from_secret_bytes(&test_pvt).unwrap();
         let sig = kp.sign(&test_msg[..]).unwrap();
         assert_eq!(sig, &test_sig[..]);
         assert!(kp.verify_signature(&test_msg[..], &sig[..]));

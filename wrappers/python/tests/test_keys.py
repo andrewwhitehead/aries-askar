@@ -77,3 +77,36 @@ def test_ed25519():
     jwk = json.loads(key.get_jwk_secret())
     assert jwk["kty"] == "OKP"
     assert jwk["crv"] == "Ed25519"
+    assert "d" in jwk
+
+
+def test_p256():
+    key = Key.generate(KeyAlg.P256)
+    assert key.algorithm == KeyAlg.P256
+    message = b"test message"
+    sig = key.sign_message(message)
+    assert key.verify_signature(message, sig)
+
+    key2 = Key.generate(KeyAlg.P256)
+    kex = key.key_exchange(KeyAlg.XC20P, key2)
+    assert isinstance(kex, Key)
+
+    jwk = json.loads(key.get_jwk_public())
+    assert jwk["kty"] == "EC"
+    assert jwk["crv"] == "P-256"
+
+
+def test_p384():
+    key = Key.generate(KeyAlg.P384)
+    assert key.algorithm == KeyAlg.P384
+    message = b"test message"
+    sig = key.sign_message(message)
+    assert key.verify_signature(message, sig)
+
+    key2 = Key.generate(KeyAlg.P384)
+    kex = key.key_exchange(KeyAlg.XC20P, key2)
+    assert isinstance(kex, Key)
+
+    jwk = json.loads(key.get_jwk_public())
+    assert jwk["kty"] == "EC"
+    assert jwk["crv"] == "P-384"

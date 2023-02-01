@@ -51,6 +51,8 @@ pub enum SignatureType {
     EdDSA,
     /// Elliptic curve DSA using P-256 and SHA-256
     ES256,
+    /// Elliptic curve DSA using P-384 and SHA-384
+    ES384,
     /// Elliptic curve DSA using K-256 and SHA-256
     ES256K,
 }
@@ -62,6 +64,7 @@ impl FromStr for SignatureType {
         match normalize_alg(s)? {
             a if a == "eddsa" => Ok(Self::EdDSA),
             a if a == "es256" => Ok(Self::ES256),
+            a if a == "es384" => Ok(Self::ES384),
             a if a == "es256k" => Ok(Self::ES256K),
             _ => Err(err_msg!(Unsupported, "Unknown signature algorithm")),
         }
@@ -73,6 +76,7 @@ impl SignatureType {
     pub const fn signature_length(&self) -> usize {
         match self {
             Self::EdDSA | Self::ES256 | Self::ES256K => 64,
+            Self::ES384 => 96,
         }
     }
 }
