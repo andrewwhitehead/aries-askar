@@ -2,8 +2,11 @@
 
 use core::marker::PhantomData;
 
-use aes_core::{Aes128, Aes256};
-use block_modes::cipher::{BlockCipher, BlockDecrypt, BlockEncrypt, NewBlockCipher};
+use aead::KeySizeUser;
+use aes_core::{
+    cipher::{BlockCipher, BlockDecrypt, BlockEncrypt, KeyInit},
+    Aes128, Aes256,
+};
 use subtle::ConstantTimeEq;
 
 use super::{AesKey, AesType, NonceSize, TagSize};
@@ -24,7 +27,7 @@ const AES_KW_DEFAULT_IV: [u8; 8] = [166, 166, 166, 166, 166, 166, 166, 166];
 pub type A128Kw = AesKeyWrap<Aes128>;
 
 impl AesType for A128Kw {
-    type KeySize = <Aes128 as NewBlockCipher>::KeySize;
+    type KeySize = <Aes128 as KeySizeUser>::KeySize;
     const ALG_TYPE: AesTypes = AesTypes::A128Kw;
     const JWK_ALG: &'static str = "A128KW";
 }
@@ -33,7 +36,7 @@ impl AesType for A128Kw {
 pub type A256Kw = AesKeyWrap<Aes256>;
 
 impl AesType for A256Kw {
-    type KeySize = <Aes256 as NewBlockCipher>::KeySize;
+    type KeySize = <Aes256 as KeySizeUser>::KeySize;
     const ALG_TYPE: AesTypes = AesTypes::A256Kw;
     const JWK_ALG: &'static str = "A256KW";
 }
@@ -53,7 +56,7 @@ where
 impl<C> KeyAeadInPlace for AesKey<AesKeyWrap<C>>
 where
     AesKeyWrap<C>: AesType,
-    C: NewBlockCipher<KeySize = <AesKeyWrap<C> as AesType>::KeySize>
+    C: KeyInit<KeySize = <AesKeyWrap<C> as AesType>::KeySize>
         + BlockCipher<BlockSize = consts::U16>
         + BlockDecrypt
         + BlockEncrypt,
