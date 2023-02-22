@@ -1,16 +1,19 @@
 //! AEAD encryption traits and parameters
 
-use crate::{buffer::ResizeBuffer, error::Error, generic_array::ArrayLength};
+use crate::{
+    buffer::{FixedBuffer, ResizeBuffer},
+    error::Error,
+};
 
 #[cfg(feature = "getrandom")]
-use crate::generic_array::GenericArray;
+use crate::key::KeyGen;
 
 #[cfg(feature = "crypto_box")]
 #[cfg_attr(docsrs, doc(cfg(feature = "crypto_box")))]
 pub mod crypto_box;
 
 /// Object-safe trait for key types which perform AEAD encryption
-pub trait KeyAeadInPlace {
+pub trait Aead {
     /// Encrypt a secret value in place, appending the verification tag and
     /// returning the length of the ciphertext
     fn encrypt_in_place(
@@ -29,7 +32,7 @@ pub trait KeyAeadInPlace {
     ) -> Result<(), Error>;
 
     /// Get the nonce and tag length for encryption
-    fn aead_params(&self) -> KeyAeadParams;
+    fn aead_params(&self) -> AeadParams;
 
     /// Get the ciphertext padding required
     fn aead_padding(&self, _msg_len: usize) -> usize {
@@ -38,24 +41,22 @@ pub trait KeyAeadInPlace {
 }
 
 /// For concrete key types with fixed nonce and tag sizes
-pub trait KeyAeadMeta {
+pub trait AeadMeta {
     /// The size of the AEAD nonce
-    type NonceSize: ArrayLength<u8>;
+    type Nonce: FixedBuffer;
     /// The size of the AEAD tag
-    type TagSize: ArrayLength<u8>;
+    type Tag: FixedBuffer;
 
     /// Generate a new random nonce
     #[cfg(feature = "getrandom")]
-    fn random_nonce() -> GenericArray<u8, Self::NonceSize> {
-        let mut nonce = GenericArray::default();
-        crate::random::fill_random(nonce.as_mut_slice());
-        nonce
+    fn random_nonce() -> Self::Nonce {
+        Self::Nonce::random().expect("Error creating random nonce")
     }
 }
 
 /// A structure combining the AEAD parameters
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct KeyAeadParams {
+pub struct AeadParams {
     /// The length of the nonce
     pub nonce_length: usize,
     /// The length of the tag

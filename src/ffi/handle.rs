@@ -6,13 +6,23 @@ use crate::error::Error;
 pub struct ArcHandle<T: Send>(*const T);
 
 impl<T: Send> ArcHandle<T> {
-    pub fn invalid() -> Self {
+    pub fn invalid() -> Self
+    where
+        T: Sized,
+    {
         Self(ptr::null())
     }
 
-    pub fn create(value: T) -> Self {
-        let results = Arc::into_raw(Arc::new(value));
-        Self(results)
+    pub fn create(value: T) -> Self
+    where
+        T: Sized,
+    {
+        Self::from_arc(Arc::new(value))
+    }
+
+    #[inline]
+    fn from_arc(arc: Arc<T>) -> Self {
+        Self(Arc::into_raw(arc))
     }
 
     pub fn load(&self) -> Result<Arc<T>, Error> {
@@ -37,6 +47,12 @@ impl<T: Send> ArcHandle<T> {
         } else {
             Ok(())
         }
+    }
+}
+
+impl<T: Send> From<Arc<T>> for ArcHandle<T> {
+    fn from(arc: Arc<T>) -> Self {
+        Self::from_arc(arc)
     }
 }
 

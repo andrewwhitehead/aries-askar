@@ -10,7 +10,7 @@ use futures_lite::stream::{Stream, StreamExt};
 use zeroize::Zeroize;
 
 use super::wql;
-use crate::{crypto::buffer::SecretBytes, error::Error};
+use crate::{crypto::buffer::SecretVec, error::Error};
 
 pub(crate) fn sorted_tags(tags: &Vec<EntryTag>) -> Vec<&EntryTag> {
     if tags.is_empty() {
@@ -32,7 +32,7 @@ pub struct Entry {
     pub name: String,
 
     /// The value of the entry record
-    pub value: SecretBytes,
+    pub value: SecretVec,
 
     /// Tags associated with the entry record
     pub tags: Vec<EntryTag>,
@@ -41,7 +41,7 @@ pub struct Entry {
 impl Entry {
     /// Create a new `Entry`
     #[inline]
-    pub fn new<C: Into<String>, N: Into<String>, V: Into<SecretBytes>>(
+    pub fn new<C: Into<String>, N: Into<String>, V: Into<SecretVec>>(
         category: C,
         name: N,
         value: V,

@@ -14,51 +14,71 @@ use super::ops::{KeyOps, KeyOpsSet};
 use crate::error::Error;
 
 /// A parsed JWK
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
 pub struct JwkParts<'a> {
     /// Key type
-    pub kty: &'a str,
+    pub kty: JwkAttr<'a>,
     /// Key ID
-    pub kid: OptAttr<'a>,
+    pub kid: JwkAttr<'a>,
     /// Key algorithm
-    pub alg: OptAttr<'a>,
+    pub alg: JwkAttr<'a>,
     /// Curve type
-    pub crv: OptAttr<'a>,
+    pub crv: JwkAttr<'a>,
     /// Curve key public x coordinate
-    pub x: OptAttr<'a>,
+    pub x: JwkAttr<'a>,
     /// Curve key public y coordinate
-    pub y: OptAttr<'a>,
+    pub y: JwkAttr<'a>,
     /// Curve key private key bytes
-    pub d: OptAttr<'a>,
+    pub d: JwkAttr<'a>,
     /// Used by symmetric keys like AES
-    pub k: OptAttr<'a>,
+    pub k: JwkAttr<'a>,
     /// Recognized key operations
     pub key_ops: Option<KeyOpsSet>,
 }
 
-impl<'de> JwkParts<'de> {
-    /// Parse a JWK from a string reference
-    pub fn try_from_str(jwk: &'de str) -> Result<Self, Error> {
-        let (parts, _read) =
-            serde_json_core::from_str(jwk).map_err(err_map!(Invalid, "Error parsing JWK"))?;
-        Ok(parts)
-    }
+impl<'de> TryFrom<&'de [u8]> for JwkParts<'de> {
+    type Error = Error;
 
-    /// Parse a JWK from a byte slice
-    pub fn from_slice(jwk: &'de [u8]) -> Result<Self, Error> {
+    fn try_from(jwk: &'de [u8]) -> Result<Self, Self::Error> {
         let (parts, _read) =
             serde_json_core::from_slice(jwk).map_err(err_map!(Invalid, "Error parsing JWK"))?;
         Ok(parts)
     }
 }
 
-#[derive(Copy, Clone, Default, PartialEq, Eq)]
+impl<'de> TryFrom<&'de str> for JwkParts<'de> {
+    type Error = Error;
+
+    fn try_from(jwk: &'de str) -> Result<Self, Self::Error> {
+        Self::try_from(jwk.as_bytes())
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<'de> TryFrom<&'de alloc::string::String> for JwkParts<'de> {
+    type Error = Error;
+
+    fn try_from(jwk: &'de alloc::string::String) -> Result<Self, Self::Error> {
+        Self::try_from(jwk.as_bytes())
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<'de> TryFrom<&'de alloc::vec::Vec<u8>> for JwkParts<'de> {
+    type Error = Error;
+
+    fn try_from(jwk: &'de alloc::vec::Vec<u8>) -> Result<Self, Self::Error> {
+        Self::try_from(jwk.as_slice())
+    }
+}
+
+#[derive(Clone, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
 #[repr(transparent)]
-pub struct OptAttr<'a>(Option<&'a str>);
+pub struct JwkAttr<'a>(Option<&'a str>);
 
-impl OptAttr<'_> {
+impl JwkAttr<'_> {
     pub fn is_none(&self) -> bool {
         self.0.is_none()
     }
@@ -72,7 +92,7 @@ impl OptAttr<'_> {
     }
 
     pub fn decode_base64(&self, output: &mut [u8]) -> Result<usize, Error> {
-        if let Some(s) = self.0 {
+        if let Some(s) = self.as_opt_str() {
             let max_input = (output.len() * 4 + 2) / 3; // ceil(4*n/3)
             if s.len() > max_input {
                 Err(err_msg!(Invalid, "Base64 length exceeds max"))
@@ -84,9 +104,24 @@ impl OptAttr<'_> {
             Err(err_msg!(Invalid, "Empty attribute"))
         }
     }
+
+    pub fn decode_base64_exact(&self, output: &mut [u8]) -> Result<(), Error> {
+        let len = self.decode_base64(output)?;
+        if len == output.len() {
+            Ok(())
+        } else {
+            Err(err_msg!(InvalidKeyData, "Invalid length"))
+        }
+    }
+
+    pub fn decode_base64_array<const L: usize>(&self) -> Result<[u8; L], Error> {
+        let mut buf = [0u8; L];
+        self.decode_base64_exact(&mut buf)?;
+        Ok(buf)
+    }
 }
 
-impl Debug for OptAttr<'_> {
+impl Debug for JwkAttr<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self.0 {
             None => f.write_str("None"),
@@ -95,31 +130,31 @@ impl Debug for OptAttr<'_> {
     }
 }
 
-impl AsRef<str> for OptAttr<'_> {
+impl AsRef<str> for JwkAttr<'_> {
     fn as_ref(&self) -> &str {
-        self.0.unwrap_or_default()
+        self.as_opt_str().unwrap_or_default()
     }
 }
 
-impl<'o> From<&'o str> for OptAttr<'o> {
+impl<'o> From<&'o str> for JwkAttr<'o> {
     fn from(s: &'o str) -> Self {
         Self(Some(s))
     }
 }
 
-impl<'o> From<Option<&'o str>> for OptAttr<'o> {
+impl<'o> From<Option<&'o str>> for JwkAttr<'o> {
     fn from(s: Option<&'o str>) -> Self {
-        Self(s)
+        Self(s.map(Into::into))
     }
 }
 
-impl PartialEq<Option<&str>> for OptAttr<'_> {
+impl PartialEq<Option<&str>> for JwkAttr<'_> {
     fn eq(&self, other: &Option<&str>) -> bool {
-        self.0 == *other
+        self.as_opt_str() == *other
     }
 }
 
-impl PartialEq<&str> for OptAttr<'_> {
+impl PartialEq<&str> for JwkAttr<'_> {
     fn eq(&self, other: &&str) -> bool {
         match self.0 {
             None => false,
@@ -178,9 +213,9 @@ impl<'de> Visitor<'de> for JwkMapVisitor<'de> {
             }
         }
 
-        if let Some(kty) = kty {
+        if kty.is_some() {
             Ok(JwkParts {
-                kty,
+                kty: kty.into(),
                 kid: kid.into(),
                 alg: alg.into(),
                 crv: crv.into(),
@@ -226,7 +261,9 @@ impl Serialize for JwkParts<'_> {
         if let Some(kid) = self.kid.as_opt_str() {
             map.serialize_entry("kid", kid)?;
         }
-        map.serialize_entry("kty", self.kty)?;
+        if let Some(kty) = self.kty.as_opt_str() {
+            map.serialize_entry("kty", kty)?;
+        }
         if let Some(x) = self.x.as_opt_str() {
             map.serialize_entry("x", x)?;
         }
@@ -254,7 +291,7 @@ mod tests {
             "key_ops": ["sign", "verify"],
             "kid": "FdFYFzERwC2uCBB46pZQi4GG85LujR8obt-KWRBICVQ"
         }"#;
-        let parts = JwkParts::try_from_str(jwk).unwrap();
+        let parts = JwkParts::try_from(jwk).unwrap();
         assert_eq!(parts.kty, "OKP");
         assert_eq!(
             parts.kid,
@@ -270,7 +307,7 @@ mod tests {
         // check serialization
         let mut buf = [0u8; 512];
         let len = serde_json_core::to_slice(&parts, &mut buf[..]).unwrap();
-        let parts_2 = JwkParts::from_slice(&buf[..len]).unwrap();
+        let parts_2 = JwkParts::try_from(&buf[..len]).unwrap();
         assert_eq!(parts_2, parts);
     }
 }

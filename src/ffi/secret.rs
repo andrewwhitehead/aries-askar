@@ -1,6 +1,6 @@
 use std::{mem, ptr};
 
-use crate::{crypto::buffer::SecretBytes, kms::Encrypted};
+use crate::{crypto::buffer::SecretVec, kms::Encrypted};
 
 #[no_mangle]
 pub extern "C" fn askar_buffer_free(buffer: SecretBuffer) {
@@ -29,7 +29,7 @@ impl Default for SecretBuffer {
 }
 
 impl SecretBuffer {
-    pub fn from_secret(buffer: impl Into<SecretBytes>) -> Self {
+    pub fn from_secret(buffer: impl Into<SecretVec>) -> Self {
         let mut buf = buffer.into();
         buf.shrink_to_fit();
         debug_assert_eq!(buf.len(), buf.capacity());
@@ -39,15 +39,15 @@ impl SecretBuffer {
         Self { len, data }
     }
 
-    pub fn destroy_into_secret(self) -> SecretBytes {
+    pub fn destroy_into_secret(self) -> SecretVec {
         if self.data.is_null() {
-            SecretBytes::default()
+            SecretVec::default()
         } else {
             if self.len < 0 {
                 panic!("found negative length for secret buffer");
             }
             let len = self.len as usize;
-            SecretBytes::from(unsafe { Vec::from_raw_parts(self.data, len, len) })
+            SecretVec::from(unsafe { Vec::from_raw_parts(self.data, len, len) })
         }
     }
 }

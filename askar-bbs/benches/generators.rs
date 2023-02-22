@@ -4,7 +4,7 @@ extern crate criterion;
 use askar_bbs::{DynGenerators, Generators};
 use askar_crypto::{
     alg::bls::{BlsKeyPair, G2},
-    repr::KeySecretBytes,
+    repr::FromSecretBytes,
 };
 use hex_literal::hex;
 

@@ -4,7 +4,7 @@ fn sign_verify_expected() {
     use askar_crypto::{
         alg::bls::{BlsKeyPair, G2},
         buffer::Writer,
-        repr::KeySecretBytes,
+        repr::FromSecretBytes,
     };
     use hex_literal::hex;
 

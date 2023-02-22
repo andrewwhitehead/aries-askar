@@ -1,7 +1,7 @@
 use askar_bbs::{DynGenerators, Generators};
 use askar_crypto::{
     alg::bls::{BlsKeyPair, G2},
-    repr::KeySecretBytes,
+    repr::FromSecretBytes,
 };
 use bls12_381::G1Projective;
 use hex_literal::hex;

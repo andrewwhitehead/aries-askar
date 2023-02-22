@@ -1,15 +1,15 @@
-pub use crate::crypto::buffer::SecretBytes;
+pub use crate::crypto::buffer::SecretVec;
 
 /// The result of an AEAD encryption operation
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Encrypted {
-    pub(crate) buffer: SecretBytes,
+    pub(crate) buffer: SecretVec,
     pub(crate) tag_pos: usize,
     pub(crate) nonce_pos: usize,
 }
 
 impl Encrypted {
-    pub(crate) fn new(buffer: SecretBytes, tag_pos: usize, nonce_pos: usize) -> Self {
+    pub(crate) fn new(buffer: SecretVec, tag_pos: usize, nonce_pos: usize) -> Self {
         Self {
             buffer,
             tag_pos,
@@ -44,7 +44,7 @@ impl AsRef<[u8]> for Encrypted {
     }
 }
 
-impl From<Encrypted> for SecretBytes {
+impl From<Encrypted> for SecretVec {
     fn from(e: Encrypted) -> Self {
         e.buffer
     }
@@ -67,11 +67,11 @@ impl<'d> ToDecrypt<'d> {
         self.ciphertext.len() + self.tag.len()
     }
 
-    pub(crate) fn into_secret(self) -> SecretBytes {
+    pub(crate) fn into_secret(self) -> SecretVec {
         if self.tag.is_empty() {
-            SecretBytes::from_slice(self.ciphertext)
+            SecretVec::from_slice(self.ciphertext)
         } else {
-            let mut buf = SecretBytes::with_capacity(self.len());
+            let mut buf = SecretVec::with_capacity(self.len());
             buf.extend_from_slice(self.ciphertext);
             buf.extend_from_slice(self.tag);
             buf

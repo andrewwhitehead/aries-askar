@@ -82,6 +82,12 @@ impl AsMut<[u8]> for Writer<'_, [u8]> {
     }
 }
 
+impl<'w> From<Writer<'w, [u8]>> for &'w [u8] {
+    fn from(w: Writer<'w, [u8]>) -> Self {
+        w.inner
+    }
+}
+
 impl WriteBuffer for Writer<'_, [u8]> {
     fn buffer_write(&mut self, data: &[u8]) -> Result<(), Error> {
         let total = self.inner.len();

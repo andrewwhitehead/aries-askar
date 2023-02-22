@@ -6,18 +6,17 @@ use core::{
 };
 
 use subtle::ConstantTimeEq;
-use x25519_dalek::{PublicKey, StaticSecret as SecretKey};
+use x25519_dalek::{PublicKey, SharedSecret, StaticSecret as SecretKey};
 use zeroize::Zeroizing;
 
-use super::{ed25519::Ed25519KeyPair, HasKeyAlg, KeyAlg};
+use super::{ed25519::Ed25519KeyPair, KeyAlgorithm};
 use crate::{
-    buffer::{ArrayKey, WriteBuffer},
+    buffer::{FixedSecret, SecretArray},
     error::Error,
-    generic_array::typenum::{U32, U64},
     jwk::{FromJwk, JwkEncoder, JwkParts, ToJwk},
-    kdf::KeyExchange,
-    random::KeyMaterial,
-    repr::{KeyGen, KeyMeta, KeyPublicBytes, KeySecretBytes, KeypairBytes, KeypairMeta},
+    kdf::KeyExchangeCore,
+    key::{ConcreteKey, KeyCore, KeyGen, KeyMaterial, KeyType},
+    repr::{FromPublicBytes, FromSecretBytes, PublicBytesCore, SecretBytesCore},
 };
 
 // FIXME: reject low-order points?
@@ -87,28 +86,63 @@ impl Debug for X25519KeyPair {
     }
 }
 
-impl HasKeyAlg for X25519KeyPair {
-    fn algorithm(&self) -> KeyAlg {
-        KeyAlg::X25519
+impl KeyCore for X25519KeyPair {
+    fn key_algorithm(&self) -> KeyAlgorithm {
+        KeyAlgorithm::X25519
+    }
+
+    fn key_type(&self) -> KeyType {
+        if self.secret.is_some() {
+            KeyType::AsymmetricPair
+        } else {
+            KeyType::AsymmetricPublic
+        }
+    }
+
+    fn as_exchange(&self) -> Option<&dyn crate::kdf::KeyExchange> {
+        Some(self)
+    }
+
+    fn as_jwk_encoder(&self) -> Option<&dyn ToJwk> {
+        Some(self)
+    }
+
+    fn as_public(&self) -> Option<&dyn crate::repr::ToPublicBytes> {
+        Some(self)
+    }
+
+    fn as_secret(&self) -> Option<&dyn crate::repr::ToSecretBytes> {
+        Some(self)
     }
 }
-
-impl KeyMeta for X25519KeyPair {
-    type KeySize = U32;
-}
+impl ConcreteKey for X25519KeyPair {}
 
 impl KeyGen for X25519KeyPair {
-    fn generate(rng: impl KeyMaterial) -> Result<Self, Error> {
-        let sk = ArrayKey::<U32>::generate(rng);
-        let sk = SecretKey::from(
-            TryInto::<[u8; SECRET_KEY_LENGTH]>::try_into(&sk.as_ref()[..]).unwrap(),
-        );
+    fn generate(source: impl KeyMaterial) -> Result<Self, Error> {
+        let sk = SecretArray::<{ Self::SECRET_BYTES_LEN }>::generate(source)?;
+        let sk = SecretKey::from(sk.into_array());
         let pk = PublicKey::from(&sk);
         Ok(Self::new(Some(sk), pk))
     }
 }
 
-impl KeySecretBytes for X25519KeyPair {
+impl SecretBytesCore for X25519KeyPair {
+    const SECRET_BYTES_LEN: usize = 32;
+
+    fn access_secret_bytes<O>(
+        &self,
+        f: impl FnOnce(&[u8]) -> Result<O, Error>,
+    ) -> Result<O, Error> {
+        if let Some(sk) = self.secret.as_ref() {
+            let buf = Zeroizing::new(sk.to_bytes());
+            f(buf.as_ref())
+        } else {
+            Err(err_msg!(Unsupported))
+        }
+    }
+}
+
+impl FromSecretBytes for X25519KeyPair {
     fn from_secret_bytes(key: &[u8]) -> Result<Self, Error> {
         if key.len() != SECRET_KEY_LENGTH {
             return Err(err_msg!(InvalidKeyData));
@@ -117,47 +151,17 @@ impl KeySecretBytes for X25519KeyPair {
             TryInto::<[u8; SECRET_KEY_LENGTH]>::try_into(key).unwrap(),
         )))
     }
+}
 
-    fn with_secret_bytes<O>(&self, f: impl FnOnce(Option<&[u8]>) -> O) -> O {
-        if let Some(sk) = self.secret.as_ref() {
-            let b = Zeroizing::new(sk.to_bytes());
-            f(Some(&b[..]))
-        } else {
-            f(None)
-        }
+impl PublicBytesCore for X25519KeyPair {
+    const PUBLIC_BYTES_LEN: usize = 32;
+
+    fn access_public_bytes(&self, f: impl FnOnce(&[u8]) -> Result<(), Error>) -> Result<(), Error> {
+        f(&self.public.to_bytes()[..])
     }
 }
 
-impl KeypairMeta for X25519KeyPair {
-    type PublicKeySize = U32;
-    type KeypairSize = U64;
-}
-
-impl KeypairBytes for X25519KeyPair {
-    fn from_keypair_bytes(kp: &[u8]) -> Result<Self, Error> {
-        if kp.len() != KEYPAIR_LENGTH {
-            return Err(err_msg!(InvalidKeyData));
-        }
-        let result = Self::from_secret_bytes(&kp[..SECRET_KEY_LENGTH])?;
-        result.check_public_bytes(&kp[SECRET_KEY_LENGTH..])?;
-        Ok(result)
-    }
-
-    fn with_keypair_bytes<O>(&self, f: impl FnOnce(Option<&[u8]>) -> O) -> O {
-        if let Some(secret) = self.secret.as_ref() {
-            ArrayKey::<<Self as KeypairMeta>::KeypairSize>::temp(|arr| {
-                let b = Zeroizing::new(secret.to_bytes());
-                arr[..SECRET_KEY_LENGTH].copy_from_slice(&b[..]);
-                arr[SECRET_KEY_LENGTH..].copy_from_slice(self.public.as_bytes());
-                f(Some(&*arr))
-            })
-        } else {
-            f(None)
-        }
-    }
-}
-
-impl KeyPublicBytes for X25519KeyPair {
+impl FromPublicBytes for X25519KeyPair {
     fn from_public_bytes(key: &[u8]) -> Result<Self, Error> {
         if key.len() != PUBLIC_KEY_LENGTH {
             return Err(err_msg!(InvalidKeyData));
@@ -167,25 +171,15 @@ impl KeyPublicBytes for X25519KeyPair {
             PublicKey::from(TryInto::<[u8; PUBLIC_KEY_LENGTH]>::try_into(key).unwrap()),
         ))
     }
-
-    fn with_public_bytes<O>(&self, f: impl FnOnce(&[u8]) -> O) -> O {
-        f(&self.public.to_bytes()[..])
-    }
 }
 
 impl ToJwk for X25519KeyPair {
     fn encode_jwk(&self, enc: &mut dyn JwkEncoder) -> Result<(), Error> {
         enc.add_str("crv", JWK_CURVE)?;
         enc.add_str("kty", JWK_KEY_TYPE)?;
-        self.with_public_bytes(|buf| enc.add_as_base64("x", buf))?;
+        self.access_public_bytes(|buf| enc.add_as_base64("x", buf))?;
         if enc.is_secret() {
-            self.with_secret_bytes(|buf| {
-                if let Some(sk) = buf {
-                    enc.add_as_base64("d", sk)
-                } else {
-                    Ok(())
-                }
-            })?;
+            self.access_secret_bytes(|buf| enc.add_as_base64("d", buf))?;
         }
         Ok(())
     }
@@ -199,33 +193,51 @@ impl FromJwk for X25519KeyPair {
         if jwk.crv != JWK_CURVE {
             return Err(err_msg!(InvalidKeyData, "Unsupported key algorithm"));
         }
-        ArrayKey::<U32>::temp(|pk_arr| {
-            if jwk.x.decode_base64(pk_arr)? != pk_arr.len() {
-                Err(err_msg!(InvalidKeyData))
-            } else if jwk.d.is_some() {
-                ArrayKey::<U32>::temp(|sk_arr| {
-                    if jwk.d.decode_base64(sk_arr)? != sk_arr.len() {
-                        Err(err_msg!(InvalidKeyData))
-                    } else {
-                        let kp = X25519KeyPair::from_secret_bytes(sk_arr)?;
-                        kp.check_public_bytes(pk_arr)?;
-                        Ok(kp)
-                    }
-                })
-            } else {
-                X25519KeyPair::from_public_bytes(pk_arr)
-            }
-        })
+        let pk_arr = jwk.x.decode_base64_array::<{ Self::PUBLIC_BYTES_LEN }>()?;
+        if jwk.d.is_some() {
+            SecretArray::<{ Self::SECRET_BYTES_LEN }>::with_temp(|sk_arr| {
+                if jwk.d.decode_base64(sk_arr)? != sk_arr.len() {
+                    Err(err_msg!(InvalidKeyData))
+                } else {
+                    let kp = X25519KeyPair::from_secret_bytes(sk_arr)?;
+                    kp.check_public_bytes(&pk_arr)?;
+                    Ok(kp)
+                }
+            })
+        } else {
+            X25519KeyPair::from_public_bytes(&pk_arr)
+        }
     }
 }
 
-impl KeyExchange for X25519KeyPair {
-    fn write_key_exchange(&self, other: &Self, out: &mut dyn WriteBuffer) -> Result<(), Error> {
+/// An X25519 shared secret, produced by a key exchange.
+pub struct X25519SharedSecret(SharedSecret);
+
+impl Debug for X25519SharedSecret {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("X25519SharedSecret").finish()
+    }
+}
+
+impl SecretBytesCore for X25519SharedSecret {
+    const SECRET_BYTES_LEN: usize = SECRET_KEY_LENGTH;
+
+    fn access_secret_bytes<O>(
+        &self,
+        f: impl FnOnce(&[u8]) -> Result<O, Error>,
+    ) -> Result<O, Error> {
+        f(self.0.as_bytes().as_slice())
+    }
+}
+
+impl KeyExchangeCore for X25519KeyPair {
+    type ExchangeKey = X25519SharedSecret;
+
+    fn key_exchange(&self, public: &Self) -> Result<Self::ExchangeKey, Error> {
         match self.secret.as_ref() {
             Some(sk) => {
-                let xk = sk.diffie_hellman(&other.public);
-                out.buffer_write(xk.as_bytes())?;
-                Ok(())
+                let xk = sk.diffie_hellman(&public.public);
+                Ok(X25519SharedSecret(xk))
             }
             None => Err(err_msg!(MissingSecretKey)),
         }
@@ -243,8 +255,11 @@ impl TryFrom<&Ed25519KeyPair> for X25519KeyPair {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::repr::ToPublicBytes;
+    use crate::kdf::KeyExchange;
+    #[cfg(feature = "alloc")]
+    use crate::repr::{ToPublicBytes, ToSecretBytes};
 
+    #[cfg(feature = "alloc")]
     #[test]
     fn jwk_expected() {
         // {
@@ -261,7 +276,7 @@ mod tests {
         let jwk = kp
             .to_jwk_public(None)
             .expect("Error converting public key to JWK");
-        let jwk = JwkParts::try_from_str(&jwk).expect("Error parsing JWK output");
+        let jwk = JwkParts::try_from(&jwk).expect("Error parsing JWK output");
         assert_eq!(jwk.kty, JWK_KEY_TYPE);
         assert_eq!(jwk.crv, JWK_CURVE);
         assert_eq!(jwk.x, "tGskN_ae61DP4DLY31_fjkbvnKqf-ze7kA6Cj2vyQxU");
@@ -271,16 +286,17 @@ mod tests {
 
         let jwk = kp
             .to_jwk_secret(None)
-            .expect("Error converting private key to JWK");
-        let jwk = JwkParts::from_slice(&jwk).expect("Error parsing JWK output");
+            .expect("Error converting private key to JWK")
+            .into_vec();
+        let jwk = JwkParts::try_from(&jwk).expect("Error parsing JWK output");
         assert_eq!(jwk.kty, JWK_KEY_TYPE);
         assert_eq!(jwk.crv, JWK_CURVE);
         assert_eq!(jwk.x, "tGskN_ae61DP4DLY31_fjkbvnKqf-ze7kA6Cj2vyQxU");
         assert_eq!(jwk.d, test_pvt_b64);
         let sk_load = X25519KeyPair::from_jwk_parts(jwk).unwrap();
         assert_eq!(
-            kp.to_keypair_bytes().unwrap(),
-            sk_load.to_keypair_bytes().unwrap()
+            kp.to_secret_bytes().unwrap(),
+            sk_load.to_secret_bytes().unwrap()
         );
     }
 
@@ -289,8 +305,8 @@ mod tests {
         let kp1 = X25519KeyPair::random().unwrap();
         let kp2 = X25519KeyPair::random().unwrap();
         assert_ne!(
-            kp1.to_keypair_bytes().unwrap(),
-            kp2.to_keypair_bytes().unwrap()
+            kp1.to_secret_bytes().unwrap(),
+            kp2.to_secret_bytes().unwrap()
         );
 
         let xch1 = kp1.key_exchange_bytes(&kp2).unwrap();
@@ -302,10 +318,10 @@ mod tests {
     #[test]
     fn round_trip_bytes() {
         let kp = X25519KeyPair::random().unwrap();
-        let cmp = X25519KeyPair::from_keypair_bytes(&kp.to_keypair_bytes().unwrap()).unwrap();
+        let cmp = X25519KeyPair::from_secret_bytes(&kp.to_secret_bytes().unwrap()).unwrap();
         assert_eq!(
-            kp.to_keypair_bytes().unwrap(),
-            cmp.to_keypair_bytes().unwrap()
+            kp.to_secret_bytes().unwrap(),
+            cmp.to_secret_bytes().unwrap()
         );
     }
 }

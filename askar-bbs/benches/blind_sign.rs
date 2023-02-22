@@ -4,7 +4,7 @@ extern crate criterion;
 use askar_bbs::{CommitmentBuilder, DynGenerators, Message, Nonce, SignatureBuilder};
 use askar_crypto::{
     alg::bls::{BlsKeyPair, G2},
-    repr::KeyGen,
+    key::KeyGen,
 };
 use rand::{rngs::OsRng, RngCore};
 

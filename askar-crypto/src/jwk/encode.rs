@@ -7,7 +7,7 @@ use serde::{
 
 use super::{ops::KeyOpsSet, ToJwk};
 use crate::{
-    alg::KeyAlg,
+    alg::KeyAlgorithm,
     buffer::{WriteBuffer, Writer},
     error::Error,
 };
@@ -35,7 +35,7 @@ pub enum JwkEncoderMode {
 /// Common interface for JWK encoders
 pub trait JwkEncoder {
     /// Get the requested algorithm for the JWK
-    fn alg(&self) -> Option<KeyAlg>;
+    fn alg(&self) -> Option<KeyAlgorithm>;
 
     /// Add a string attribute
     fn add_str(&mut self, key: &str, value: &str) -> Result<(), Error>;
@@ -68,7 +68,7 @@ pub struct JwkBufferEncoder<'b, B: WriteBuffer> {
     mode: JwkEncoderMode,
     buffer: &'b mut B,
     empty: bool,
-    alg: Option<KeyAlg>,
+    alg: Option<KeyAlgorithm>,
     key_ops: Option<KeyOpsSet>,
     kid: Option<&'b str>,
 }
@@ -100,7 +100,7 @@ impl<'b, B: WriteBuffer> JwkBufferEncoder<'b, B> {
     }
 
     /// Set the key algorithm
-    pub fn alg(self, alg: Option<KeyAlg>) -> Self {
+    pub fn alg(self, alg: Option<KeyAlgorithm>) -> Self {
         Self { alg, ..self }
     }
 
@@ -142,7 +142,7 @@ impl<'b, B: WriteBuffer> JwkBufferEncoder<'b, B> {
 
 impl<B: WriteBuffer> JwkEncoder for JwkBufferEncoder<'_, B> {
     #[inline]
-    fn alg(&self) -> Option<KeyAlg> {
+    fn alg(&self) -> Option<KeyAlgorithm> {
         self.alg
     }
 
@@ -175,7 +175,7 @@ impl<B: WriteBuffer> JwkEncoder for JwkBufferEncoder<'_, B> {
 pub struct JwkSerialize<'s, K: ToJwk> {
     mode: JwkEncoderMode,
     key: &'s K,
-    alg: Option<KeyAlg>,
+    alg: Option<KeyAlgorithm>,
     key_ops: Option<KeyOpsSet>,
     kid: Option<&'s str>,
 }
@@ -226,7 +226,7 @@ impl<'s, K: ToJwk> JwkSerialize<'s, K> {
     }
 
     /// Set the key algorithm
-    pub fn alg(self, alg: Option<KeyAlg>) -> Self {
+    pub fn alg(self, alg: Option<KeyAlgorithm>) -> Self {
         Self { alg, ..self }
     }
 
@@ -247,13 +247,13 @@ impl<'s, K: ToJwk> Serialize for JwkSerialize<'s, K> {
         S: Serializer,
     {
         struct Enc<'m, M> {
-            alg: Option<KeyAlg>,
+            alg: Option<KeyAlgorithm>,
             mode: JwkEncoderMode,
             map: &'m mut M,
         }
 
         impl<M: SerializeMap> JwkEncoder for Enc<'_, M> {
-            fn alg(&self) -> Option<KeyAlg> {
+            fn alg(&self) -> Option<KeyAlgorithm> {
                 self.alg
             }
 
@@ -307,7 +307,7 @@ mod tests {
         use crate::{
             alg::ed25519::Ed25519KeyPair,
             jwk::{JwkParts, KeyOps},
-            repr::KeySecretBytes,
+            repr::FromSecretBytes,
         };
 
         let kp = Ed25519KeyPair::from_secret_bytes(&hex!(
@@ -322,7 +322,7 @@ mod tests {
             &mut buf,
         )
         .unwrap();
-        let parts = JwkParts::from_slice(&buf[..len]).unwrap();
+        let parts = JwkParts::try_from(&buf[..len]).unwrap();
         assert_eq!(parts.kty, "OKP");
         assert_eq!(
             parts.kid,

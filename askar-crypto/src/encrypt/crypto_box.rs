@@ -10,9 +10,10 @@ use crypto_box_rs::{self as cbox, SalsaBox};
 
 use crate::{
     alg::x25519::X25519KeyPair,
-    buffer::{ResizeBuffer, SecretBytes, WriteBuffer},
+    buffer::{ResizeBuffer, SecretVec, WriteBuffer},
     error::Error,
-    repr::{KeyGen, KeyPublicBytes},
+    key::KeyGen,
+    repr::FromPublicBytes,
 };
 
 /// The length of the salsa box nonce
@@ -101,11 +102,11 @@ pub fn crypto_box_seal_nonce(
 
 /// Encrypt a message for a recipient using an ephemeral key and deterministic nonce
 // Could add a non-alloc version, if needed
-pub fn crypto_box_seal(recip_pk: &X25519KeyPair, message: &[u8]) -> Result<SecretBytes, Error> {
+pub fn crypto_box_seal(recip_pk: &X25519KeyPair, message: &[u8]) -> Result<SecretVec, Error> {
     let ephem_kp = X25519KeyPair::random()?;
     let ephem_pk_bytes = ephem_kp.public.as_bytes();
     let buf_len = CBOX_KEY_LENGTH + CBOX_TAG_LENGTH + message.len();
-    let mut buffer = SecretBytes::with_capacity(buf_len);
+    let mut buffer = SecretVec::with_capacity(buf_len);
     buffer.buffer_write(ephem_pk_bytes)?;
     buffer.buffer_write(message)?;
     let mut writer = Writer::from_vec_skip(buffer.as_vec_mut(), CBOX_KEY_LENGTH);
@@ -118,9 +119,9 @@ pub fn crypto_box_seal(recip_pk: &X25519KeyPair, message: &[u8]) -> Result<Secre
 pub fn crypto_box_seal_open(
     recip_sk: &X25519KeyPair,
     ciphertext: &[u8],
-) -> Result<SecretBytes, Error> {
+) -> Result<SecretVec, Error> {
     let ephem_pk = X25519KeyPair::from_public_bytes(&ciphertext[..CBOX_KEY_LENGTH])?;
-    let mut buffer = SecretBytes::from_slice(&ciphertext[CBOX_KEY_LENGTH..]);
+    let mut buffer = SecretVec::from_slice(&ciphertext[CBOX_KEY_LENGTH..]);
     let nonce = crypto_box_seal_nonce(ephem_pk.public.as_bytes(), recip_sk.public.as_bytes())?;
     crypto_box_open(recip_sk, &ephem_pk, &mut buffer, &nonce)?;
     Ok(buffer)
@@ -129,8 +130,8 @@ pub fn crypto_box_seal_open(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::buffer::SecretBytes;
-    use crate::repr::{KeySecretBytes, ToPublicBytes};
+    use crate::buffer::SecretVec;
+    use crate::repr::{FromSecretBytes, ToPublicBytes};
 
     #[test]
     fn crypto_box_round_trip_expected() {
@@ -144,7 +145,7 @@ mod tests {
         .unwrap();
         let message = b"hello there";
         let nonce = b"012345678912012345678912";
-        let mut buffer = SecretBytes::from_slice(message);
+        let mut buffer = SecretVec::from_slice(message);
         crypto_box(&pk, &sk, &mut buffer, nonce).unwrap();
         assert_eq!(
             buffer,

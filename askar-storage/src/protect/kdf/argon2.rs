@@ -1,16 +1,13 @@
-use askar_crypto::kdf::KeyDerivation;
-
 use crate::{
     crypto::{
-        buffer::ArrayKey,
         kdf::argon2::{Argon2, Params, PARAMS_INTERACTIVE, PARAMS_MODERATE},
-        repr::{KeyMeta, KeySecretBytes},
+        key::KeyGen,
     },
     error::Error,
     protect::store_key::{StoreKey, StoreKeyType},
 };
 
-pub use crate::crypto::kdf::argon2::SaltSize;
+pub use crate::crypto::kdf::argon2::SALT_LENGTH;
 
 pub const LEVEL_INTERACTIVE: &str = "13:int";
 pub const LEVEL_MODERATE: &str = "13:mod";
@@ -47,8 +44,8 @@ impl Level {
         }
     }
 
-    pub(crate) fn generate_salt(&self) -> ArrayKey<SaltSize> {
-        ArrayKey::random()
+    pub(crate) fn generate_salt(&self) -> [u8; SALT_LENGTH] {
+        KeyGen::random().expect("Error generating random salt")
     }
 
     fn params(&self) -> &Params {
@@ -59,9 +56,10 @@ impl Level {
     }
 
     pub(crate) fn derive_key(&self, password: &[u8], salt: &[u8]) -> Result<StoreKey, Error> {
-        ArrayKey::<<StoreKeyType as KeyMeta>::KeySize>::temp(|key| {
-            Argon2::new(password, salt, *self.params())?.derive_key_bytes(key)?;
-            Ok(StoreKey::from(StoreKeyType::from_secret_bytes(&*key)?))
-        })
+        Ok(StoreKey::from(StoreKeyType::generate(Argon2::new(
+            password,
+            salt,
+            *self.params(),
+        )?)?))
     }
 }

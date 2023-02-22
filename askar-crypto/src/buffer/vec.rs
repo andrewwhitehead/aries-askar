@@ -14,9 +14,9 @@ use crate::error::Error;
 
 /// A heap-allocated, zeroized byte buffer
 #[derive(Clone, Default, Zeroize)]
-pub struct SecretBytes(Vec<u8>);
+pub struct SecretVec(Vec<u8>);
 
-impl SecretBytes {
+impl SecretVec {
     /// Create a new buffer using an initializer for the data
     pub fn new_with(len: usize, f: impl FnOnce(&mut [u8])) -> Self {
         let mut slf = Self::with_capacity(len);
@@ -159,7 +159,7 @@ impl SecretBytes {
     }
 }
 
-impl Debug for SecretBytes {
+impl Debug for SecretVec {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         if cfg!(test) {
             f.debug_tuple("Secret")
@@ -171,19 +171,19 @@ impl Debug for SecretBytes {
     }
 }
 
-impl AsRef<[u8]> for SecretBytes {
+impl AsRef<[u8]> for SecretVec {
     fn as_ref(&self) -> &[u8] {
         self.0.as_slice()
     }
 }
 
-impl AsMut<[u8]> for SecretBytes {
+impl AsMut<[u8]> for SecretVec {
     fn as_mut(&mut self) -> &mut [u8] {
         self.0.as_mut_slice()
     }
 }
 
-impl Deref for SecretBytes {
+impl Deref for SecretVec {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
@@ -191,82 +191,82 @@ impl Deref for SecretBytes {
     }
 }
 
-impl Drop for SecretBytes {
+impl Drop for SecretVec {
     fn drop(&mut self) {
         self.zeroize();
     }
 }
 
-impl ConstantTimeEq for SecretBytes {
+impl ConstantTimeEq for SecretVec {
     fn ct_eq(&self, other: &Self) -> Choice {
         ConstantTimeEq::ct_eq(self.0.as_slice(), other.0.as_slice())
     }
 }
 
-impl PartialEq for SecretBytes {
+impl PartialEq for SecretVec {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.ct_eq(other).into()
     }
 }
-impl Eq for SecretBytes {}
+impl Eq for SecretVec {}
 
-impl hash::Hash for SecretBytes {
+impl hash::Hash for SecretVec {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.0.hash(state);
     }
 }
 
-impl From<&[u8]> for SecretBytes {
+impl From<&[u8]> for SecretVec {
     fn from(inner: &[u8]) -> Self {
         Self(inner.to_vec())
     }
 }
 
-impl From<&str> for SecretBytes {
+impl From<&str> for SecretVec {
     fn from(inner: &str) -> Self {
         Self(inner.as_bytes().to_vec())
     }
 }
 
-impl From<String> for SecretBytes {
+impl From<String> for SecretVec {
     fn from(inner: String) -> Self {
         Self(inner.into_bytes())
     }
 }
 
-impl From<Box<[u8]>> for SecretBytes {
+impl From<Box<[u8]>> for SecretVec {
     fn from(inner: Box<[u8]>) -> Self {
         Self(inner.into())
     }
 }
 
-impl From<Vec<u8>> for SecretBytes {
+impl From<Vec<u8>> for SecretVec {
     fn from(inner: Vec<u8>) -> Self {
         Self(inner)
     }
 }
 
-impl PartialEq<&[u8]> for SecretBytes {
+impl PartialEq<&[u8]> for SecretVec {
     fn eq(&self, other: &&[u8]) -> bool {
         self.0.eq(other)
     }
 }
 
-impl PartialEq<Vec<u8>> for SecretBytes {
+impl PartialEq<Vec<u8>> for SecretVec {
     fn eq(&self, other: &Vec<u8>) -> bool {
         self.0.eq(other)
     }
 }
 
-impl WriteBuffer for SecretBytes {
+impl WriteBuffer for SecretVec {
     fn buffer_write(&mut self, data: &[u8]) -> Result<(), Error> {
         self.extend_from_slice(data);
         Ok(())
     }
 }
 
-impl ResizeBuffer for SecretBytes {
+impl ResizeBuffer for SecretVec {
     fn buffer_insert(&mut self, pos: usize, data: &[u8]) -> Result<(), Error> {
         self.splice(pos..pos, data.iter().cloned())
     }
@@ -283,7 +283,7 @@ impl ResizeBuffer for SecretBytes {
     }
 }
 
-impl Serialize for SecretBytes {
+impl Serialize for SecretVec {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -292,7 +292,7 @@ impl Serialize for SecretBytes {
     }
 }
 
-impl<'de> Deserialize<'de> for SecretBytes {
+impl<'de> Deserialize<'de> for SecretVec {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -304,7 +304,7 @@ impl<'de> Deserialize<'de> for SecretBytes {
 struct SecVisitor;
 
 impl<'de> de::Visitor<'de> for SecVisitor {
-    type Value = SecretBytes;
+    type Value = SecretVec;
 
     fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         formatter.write_str("bytes")
@@ -314,7 +314,7 @@ impl<'de> de::Visitor<'de> for SecVisitor {
     where
         E: de::Error,
     {
-        Ok(SecretBytes::from_slice(value))
+        Ok(SecretVec::from_slice(value))
     }
 }
 
@@ -325,11 +325,11 @@ mod tests {
 
     #[test]
     fn write_buffer_secret() {
-        test_write_buffer(SecretBytes::with_capacity(10));
+        test_write_buffer(SecretVec::with_capacity(10));
     }
 
     #[test]
     fn resize_buffer_secret() {
-        test_resize_buffer(SecretBytes::with_capacity(10));
+        test_resize_buffer(SecretVec::with_capacity(10));
     }
 }

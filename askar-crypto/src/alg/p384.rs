@@ -15,6 +15,7 @@ pub const JWK_CURVE: &str = "P-384";
 pub const JWK_KEY_TYPE: &str = ec_common::JWK_KEY_TYPE;
 
 impl_ec_key_type!(
+    "p384",
     NistP384,
     EcCurves::Secp384r1,
     SignatureType::ES384,
@@ -27,11 +28,11 @@ pub type P384KeyPair = EcKeyPair<NistP384>;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::repr::KeySecretBytes;
+    use crate::repr::FromSecretBytes;
     #[cfg(feature = "alloc")]
     use crate::{
         jwk::{FromJwk, JwkParts, ToJwk},
-        repr::{KeypairBytes, ToPublicBytes},
+        repr::{ToPublicBytes, ToSecretBytes},
     };
 
     #[cfg(feature = "alloc")]
@@ -53,7 +54,7 @@ mod tests {
         let sk = P384KeyPair::from_secret_bytes(&test_pvt).expect("Error creating signing key");
 
         let jwk = sk.to_jwk_public(None).expect("Error converting key to JWK");
-        let jwk = JwkParts::try_from_str(&jwk).expect("Error parsing JWK");
+        let jwk = JwkParts::try_from(&jwk).expect("Error parsing JWK");
         assert_eq!(jwk.kty, JWK_KEY_TYPE);
         assert_eq!(jwk.crv, JWK_CURVE);
         assert_eq!(jwk.x, test_pub_b64.0);
@@ -62,8 +63,11 @@ mod tests {
         let pk_load = P384KeyPair::from_jwk_parts(jwk).unwrap();
         assert_eq!(sk.to_public_bytes(), pk_load.to_public_bytes());
 
-        let jwk = sk.to_jwk_secret(None).expect("Error converting key to JWK");
-        let jwk = JwkParts::from_slice(&jwk).expect("Error parsing JWK");
+        let jwk = sk
+            .to_jwk_secret(None)
+            .expect("Error converting key to JWK")
+            .into_vec();
+        let jwk = JwkParts::try_from(&jwk).expect("Error parsing JWK");
         assert_eq!(jwk.kty, JWK_KEY_TYPE);
         assert_eq!(jwk.crv, JWK_CURVE);
         assert_eq!(jwk.x, test_pub_b64.0);
@@ -71,8 +75,8 @@ mod tests {
         assert_eq!(jwk.d, test_pvt_b64);
         let sk_load = P384KeyPair::from_jwk_parts(jwk).unwrap();
         assert_eq!(
-            sk.to_keypair_bytes().unwrap(),
-            sk_load.to_keypair_bytes().unwrap()
+            sk.to_secret_bytes().unwrap(),
+            sk_load.to_secret_bytes().unwrap()
         );
     }
 

@@ -18,7 +18,7 @@ mod store_key;
 pub use self::store_key::{generate_raw_store_key, StoreKey, StoreKeyMethod, StoreKeyReference};
 
 use crate::{
-    crypto::buffer::SecretBytes,
+    crypto::buffer::SecretVec,
     entry::{EncEntryTag, EntryTag},
     error::Error,
     future::unblock,
@@ -67,17 +67,17 @@ impl KeyCache {
 }
 
 pub(crate) trait EntryEncryptor {
-    fn prepare_input(input: &[u8]) -> SecretBytes {
-        SecretBytes::from(input)
+    fn prepare_input(input: &[u8]) -> SecretVec {
+        SecretVec::from(input)
     }
 
-    fn encrypt_entry_category(&self, category: SecretBytes) -> Result<Vec<u8>, Error>;
-    fn encrypt_entry_name(&self, name: SecretBytes) -> Result<Vec<u8>, Error>;
+    fn encrypt_entry_category(&self, category: SecretVec) -> Result<Vec<u8>, Error>;
+    fn encrypt_entry_name(&self, name: SecretVec) -> Result<Vec<u8>, Error>;
     fn encrypt_entry_value(
         &self,
         category: &[u8],
         name: &[u8],
-        value: SecretBytes,
+        value: SecretVec,
     ) -> Result<Vec<u8>, Error>;
     fn encrypt_entry_tags(&self, tags: Vec<EntryTag>) -> Result<Vec<EncEntryTag>, Error>;
 
@@ -88,24 +88,24 @@ pub(crate) trait EntryEncryptor {
         category: &[u8],
         name: &[u8],
         enc_value: Vec<u8>,
-    ) -> Result<SecretBytes, Error>;
+    ) -> Result<SecretVec, Error>;
     fn decrypt_entry_tags(&self, enc_tags: Vec<EncEntryTag>) -> Result<Vec<EntryTag>, Error>;
 }
 
 pub struct NullEncryptor;
 
 impl EntryEncryptor for NullEncryptor {
-    fn encrypt_entry_category(&self, category: SecretBytes) -> Result<Vec<u8>, Error> {
+    fn encrypt_entry_category(&self, category: SecretVec) -> Result<Vec<u8>, Error> {
         Ok(category.into_vec())
     }
-    fn encrypt_entry_name(&self, name: SecretBytes) -> Result<Vec<u8>, Error> {
+    fn encrypt_entry_name(&self, name: SecretVec) -> Result<Vec<u8>, Error> {
         Ok(name.into_vec())
     }
     fn encrypt_entry_value(
         &self,
         _category: &[u8],
         _name: &[u8],
-        value: SecretBytes,
+        value: SecretVec,
     ) -> Result<Vec<u8>, Error> {
         Ok(value.into_vec())
     }
@@ -138,7 +138,7 @@ impl EntryEncryptor for NullEncryptor {
         _category: &[u8],
         _name: &[u8],
         enc_value: Vec<u8>,
-    ) -> Result<SecretBytes, Error> {
+    ) -> Result<SecretVec, Error> {
         Ok(enc_value.into())
     }
     fn decrypt_entry_tags(&self, enc_tags: Vec<EncEntryTag>) -> Result<Vec<EntryTag>, Error> {

@@ -6,9 +6,9 @@ use alloc::{string::String, vec::Vec};
 use sha2::Sha256;
 
 #[cfg(feature = "alloc")]
-use crate::buffer::SecretBytes;
+use crate::buffer::SecretVec;
 use crate::{
-    alg::KeyAlg,
+    alg::KeyAlgorithm,
     buffer::{HashBuffer, WriteBuffer},
     error::Error,
 };
@@ -30,7 +30,7 @@ pub trait ToJwk {
     /// Create the JWK thumbprint of the key
     #[cfg(feature = "alloc")]
     #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
-    fn to_jwk_thumbprint(&self, alg: Option<KeyAlg>) -> Result<String, Error> {
+    fn to_jwk_thumbprint(&self, alg: Option<KeyAlgorithm>) -> Result<String, Error> {
         let mut v = Vec::with_capacity(43);
         write_jwk_thumbprint(self, alg, &mut v)?;
         Ok(String::from_utf8(v).unwrap())
@@ -39,7 +39,7 @@ pub trait ToJwk {
     /// Create a JWK of the public key
     #[cfg(feature = "alloc")]
     #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
-    fn to_jwk_public(&self, alg: Option<KeyAlg>) -> Result<String, Error> {
+    fn to_jwk_public(&self, alg: Option<KeyAlgorithm>) -> Result<String, Error> {
         let mut v = Vec::with_capacity(128);
         let mut buf = JwkBufferEncoder::new(&mut v, JwkEncoderMode::PublicKey).alg(alg);
         self.encode_jwk(&mut buf)?;
@@ -50,8 +50,8 @@ pub trait ToJwk {
     /// Create a JWK of the secret key
     #[cfg(feature = "alloc")]
     #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
-    fn to_jwk_secret(&self, alg: Option<KeyAlg>) -> Result<SecretBytes, Error> {
-        let mut v = SecretBytes::with_capacity(128);
+    fn to_jwk_secret(&self, alg: Option<KeyAlgorithm>) -> Result<SecretVec, Error> {
+        let mut v = SecretVec::with_capacity(128);
         let mut buf = JwkBufferEncoder::new(&mut v, JwkEncoderMode::SecretKey).alg(alg);
         self.encode_jwk(&mut buf)?;
         buf.finalize()?;
@@ -62,7 +62,7 @@ pub trait ToJwk {
 /// Encode a key's JWK into a buffer
 pub fn write_jwk_thumbprint<K: ToJwk + ?Sized>(
     key: &K,
-    alg: Option<KeyAlg>,
+    alg: Option<KeyAlgorithm>,
     output: &mut dyn WriteBuffer,
 ) -> Result<(), Error> {
     let mut hasher = HashBuffer::<Sha256>::new();
@@ -77,15 +77,29 @@ pub fn write_jwk_thumbprint<K: ToJwk + ?Sized>(
 }
 
 /// Support for loading a key instance from a JWK
+pub trait JwkLoader {
+    /// The output key type
+    type Key;
+
+    /// Load a key from a JWK byte slice
+    fn load_jwk(&self, jwk: &[u8]) -> Result<Self::Key, Error> {
+        JwkParts::try_from(jwk).and_then(|parts| self.load_jwk_parts(parts))
+    }
+
+    /// Load a key from a pre-parsed JWK
+    fn load_jwk_parts(&self, jwk: JwkParts<'_>) -> Result<Self::Key, Error>;
+}
+
+/// Support for loading a key instance from a JWK
 pub trait FromJwk: Sized {
     /// Import the key from a JWK string reference
     fn from_jwk(jwk: &str) -> Result<Self, Error> {
-        JwkParts::try_from_str(jwk).and_then(Self::from_jwk_parts)
+        JwkParts::try_from(jwk).and_then(Self::from_jwk_parts)
     }
 
-    /// Import the key from a JWK byte slice
+    /// Import the key from a JWK string reference
     fn from_jwk_slice(jwk: &[u8]) -> Result<Self, Error> {
-        JwkParts::from_slice(jwk).and_then(Self::from_jwk_parts)
+        JwkParts::try_from(jwk).and_then(Self::from_jwk_parts)
     }
 
     /// Import the key from a pre-parsed JWK

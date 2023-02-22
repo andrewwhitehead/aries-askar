@@ -1,218 +1,204 @@
 use core::{
     fmt::{self, Debug, Formatter},
     hash,
-    marker::{PhantomData, PhantomPinned},
-    ops::Deref,
+    marker::PhantomPinned,
 };
 
-use crate::generic_array::{ArrayLength, GenericArray};
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use subtle::{Choice, ConstantTimeEq};
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
-use super::HexRepr;
+use super::{FixedBufferCore, FixedSecret, HexRepr};
 use crate::{
     error::Error,
-    kdf::{FromKeyDerivation, KeyDerivation},
-    random::KeyMaterial,
+    key::{KeyGen, KeyMaterial},
+    repr::{FromSecretBytes, SecretBytesCore},
 };
 
 /// A secure representation for fixed-length keys
 #[derive(Clone)]
 #[repr(transparent)]
-pub struct ArrayKey<L: ArrayLength<u8>>(
-    GenericArray<u8, L>,
+pub struct SecretArray<const L: usize>(
+    [u8; L],
     // ensure that the type does not implement Unpin
     PhantomPinned,
 );
 
-impl<L: ArrayLength<u8>> ArrayKey<L> {
-    /// The array length in bytes
-    pub const SIZE: usize = L::USIZE;
-
-    /// Create a new buffer from a random data source
+impl<const L: usize> SecretArray<L> {
+    /// Convert this array to a non-zeroing array instance
     #[inline]
-    pub fn generate(mut rng: impl KeyMaterial) -> Self {
-        Self::new_with(|buf| rng.read_okm(buf))
+    pub fn into_array(self) -> [u8; L] {
+        self.0
     }
 
-    /// Create a new buffer using an initializer for the data
-    pub fn new_with(f: impl FnOnce(&mut [u8])) -> Self {
-        let mut slf = Self::default();
-        f(slf.0.as_mut());
-        slf
-    }
-
-    /// Create a new buffer using a fallible initializer for the data
-    pub fn try_new_with<E>(f: impl FnOnce(&mut [u8]) -> Result<(), E>) -> Result<Self, E> {
-        let mut slf = Self::default();
-        f(slf.0.as_mut())?;
-        Ok(slf)
-    }
-
-    /// Temporarily allocate and use a key
-    pub fn temp<R>(f: impl FnOnce(&mut GenericArray<u8, L>) -> R) -> R {
+    /// Create a new zeroed secret array and access it temporarily
+    #[inline]
+    pub fn with_temp_array<R>(f: impl FnOnce(&mut [u8; L]) -> R) -> R {
         let mut slf = Self::default();
         f(&mut slf.0)
     }
 
-    /// Convert this array to a non-zeroing GenericArray instance
-    #[inline]
-    pub fn extract(self) -> GenericArray<u8, L> {
-        self.0.clone()
-    }
-
-    /// Create a new array instance from a slice of bytes.
-    /// Like <&GenericArray>::from_slice, panics if the length of the slice
-    /// is incorrect.
-    #[inline]
-    pub fn from_slice(data: &[u8]) -> Self {
-        Self::from(GenericArray::from_slice(data))
-    }
-
-    /// Get the length of the array
-    #[inline]
-    pub fn len() -> usize {
-        Self::SIZE
-    }
-
-    /// Create a new array of random bytes
-    #[cfg(feature = "getrandom")]
-    #[inline]
-    pub fn random() -> Self {
-        Self::generate(crate::random::default_rng())
-    }
-
-    /// Get a hex formatter for the key data
+    /// Get a hex formatter for the secret data
     pub fn as_hex(&self) -> HexRepr<&[u8]> {
         HexRepr(self.0.as_ref())
     }
 }
 
-impl<L: ArrayLength<u8>> AsRef<GenericArray<u8, L>> for ArrayKey<L> {
-    #[inline(always)]
-    fn as_ref(&self) -> &GenericArray<u8, L> {
-        &self.0
-    }
-}
-
-impl<L: ArrayLength<u8>> Deref for ArrayKey<L> {
-    type Target = [u8];
-
-    #[inline(always)]
-    fn deref(&self) -> &[u8] {
-        self.0.as_ref()
-    }
-}
-
-impl<L: ArrayLength<u8>> Default for ArrayKey<L> {
-    #[inline(always)]
+impl<const L: usize> Default for SecretArray<L> {
     fn default() -> Self {
-        Self(GenericArray::default(), PhantomPinned)
+        Self([0; L], PhantomPinned)
     }
 }
 
-impl<L: ArrayLength<u8>> From<&GenericArray<u8, L>> for ArrayKey<L> {
+impl<const L: usize> From<&[u8; L]> for SecretArray<L> {
     #[inline(always)]
-    fn from(key: &GenericArray<u8, L>) -> Self {
-        Self(key.clone(), PhantomPinned)
+    fn from(key: &[u8; L]) -> Self {
+        Self(*key, PhantomPinned)
     }
 }
 
-impl<L: ArrayLength<u8>> From<GenericArray<u8, L>> for ArrayKey<L> {
+impl<const L: usize> From<[u8; L]> for SecretArray<L> {
     #[inline(always)]
-    fn from(key: GenericArray<u8, L>) -> Self {
+    fn from(key: [u8; L]) -> Self {
         Self(key, PhantomPinned)
     }
 }
 
-impl<L: ArrayLength<u8>> Debug for ArrayKey<L> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        if cfg!(test) {
-            f.debug_tuple("ArrayKey").field(&*self).finish()
+impl<const L: usize> TryFrom<&[u8]> for SecretArray<L> {
+    type Error = Error;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        if let Ok(arr) = <&[u8; L]>::try_from(value) {
+            Ok(Self::from(arr))
         } else {
-            f.debug_tuple("ArrayKey").field(&"<secret>").finish()
+            Err(err_msg!(InvalidKeyData, "Invalid length"))
         }
     }
 }
 
-impl<L: ArrayLength<u8>> ConstantTimeEq for ArrayKey<L> {
+impl<const L: usize> Debug for SecretArray<L> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        if cfg!(test) {
+            f.debug_tuple("ArrayBuffer").field(&*self).finish()
+        } else {
+            f.debug_tuple("ArrayBuffer").field(&"<secret>").finish()
+        }
+    }
+}
+
+impl<const L: usize> ConstantTimeEq for SecretArray<L> {
     fn ct_eq(&self, other: &Self) -> Choice {
         ConstantTimeEq::ct_eq(self.0.as_ref(), other.0.as_ref())
     }
 }
 
-impl<L: ArrayLength<u8>> PartialEq for ArrayKey<L> {
+impl<const L: usize> PartialEq for SecretArray<L> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.ct_eq(other).into()
     }
 }
-impl<L: ArrayLength<u8>> Eq for ArrayKey<L> {}
+impl<const L: usize> Eq for SecretArray<L> {}
 
-impl<L: ArrayLength<u8>> hash::Hash for ArrayKey<L> {
+impl<const L: usize> hash::Hash for SecretArray<L> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.0.hash(state);
     }
 }
 
-impl<L: ArrayLength<u8>> Serialize for ArrayKey<L> {
+impl<const L: usize> Serialize for SecretArray<L> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        serializer.serialize_bytes(self.as_ref())
+        serializer.serialize_bytes(&self.0)
     }
 }
 
-impl<'de, L: ArrayLength<u8>> Deserialize<'de> for ArrayKey<L> {
+impl<'de, const L: usize> Deserialize<'de> for SecretArray<L> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        deserializer.deserialize_bytes(KeyVisitor { _pd: PhantomData })
+        deserializer.deserialize_bytes(KeyVisitor)
     }
 }
 
-impl<L: ArrayLength<u8>> Zeroize for ArrayKey<L> {
+impl<const L: usize> Zeroize for SecretArray<L> {
     fn zeroize(&mut self) {
         self.0.zeroize();
     }
 }
+impl<const L: usize> ZeroizeOnDrop for SecretArray<L> {}
 
-impl<L: ArrayLength<u8>> Drop for ArrayKey<L> {
+impl<const L: usize> Drop for SecretArray<L> {
     fn drop(&mut self) {
         self.zeroize();
     }
 }
 
-struct KeyVisitor<L: ArrayLength<u8>> {
-    _pd: PhantomData<L>,
+impl<const L: usize> KeyGen for SecretArray<L> {
+    fn generate(mut source: impl KeyMaterial) -> Result<Self, Error> {
+        Self::try_new_with(|buf| source.copy_key_material(buf))
+    }
 }
 
-impl<'de, L: ArrayLength<u8>> de::Visitor<'de> for KeyVisitor<L> {
-    type Value = ArrayKey<L>;
+impl<const L: usize> SecretBytesCore for SecretArray<L> {
+    const SECRET_BYTES_LEN: usize = L;
+
+    fn access_secret_bytes<O>(
+        &self,
+        f: impl FnOnce(&[u8]) -> Result<O, Error>,
+    ) -> Result<O, Error> {
+        f(&self.0)
+    }
+}
+
+impl<const L: usize> FromSecretBytes for SecretArray<L> {
+    fn from_secret_bytes(key: &[u8]) -> Result<Self, Error> {
+        Self::try_from(key)
+    }
+}
+
+struct KeyVisitor<const L: usize>;
+
+impl<'de, const L: usize> de::Visitor<'de> for KeyVisitor<L> {
+    type Value = SecretArray<L>;
 
     fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        formatter.write_str("ArrayKey")
+        formatter.write_str("byte array")
     }
 
     fn visit_bytes<E>(self, value: &[u8]) -> Result<Self::Value, E>
     where
         E: de::Error,
     {
-        if value.len() != L::USIZE {
+        if value.len() != L {
             return Err(E::invalid_length(value.len(), &self));
         }
-        Ok(ArrayKey::from_slice(value))
+        Ok(SecretArray::from_slice(value))
     }
 }
 
-impl<L: ArrayLength<u8>> FromKeyDerivation for ArrayKey<L> {
-    fn from_key_derivation<D: KeyDerivation>(mut derive: D) -> Result<Self, Error>
-    where
-        Self: Sized,
-    {
-        Self::try_new_with(|buf| derive.derive_key_bytes(buf))
+impl<const L: usize> FixedBufferCore for SecretArray<L> {
+    const SIZE: usize = L;
+
+    fn new_with(f: impl FnOnce(&mut [u8])) -> Self {
+        let mut slf = Self::default();
+        f(slf.0.as_mut());
+        slf
+    }
+
+    fn try_new_with<E>(f: impl FnOnce(&mut [u8]) -> Result<(), E>) -> Result<Self, E> {
+        let mut slf = Self::default();
+        f(slf.0.as_mut())?;
+        Ok(slf)
+    }
+}
+
+impl<const L: usize> FixedSecret for SecretArray<L> {
+    fn with_temp<R>(f: impl FnOnce(&mut [u8]) -> R) -> R {
+        let mut slf = Self::default();
+        f(&mut slf.0)
     }
 }

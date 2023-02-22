@@ -2,14 +2,13 @@
 
 use super::store_key::{StoreKey, PREFIX_KDF};
 use crate::{
-    crypto::{buffer::ArrayKey, generic_array::ArrayLength},
+    crypto::buffer::{FixedBufferCore, HexRepr},
     error::Error,
     options::Options,
 };
 
 mod argon2;
-pub use self::argon2::Level as Argon2Level;
-use self::argon2::SaltSize as Argon2Salt;
+pub use self::argon2::{Level as Argon2Level, SALT_LENGTH};
 
 pub const METHOD_ARGON2I: &str = "argon2i";
 
@@ -62,7 +61,7 @@ impl KdfMethod {
             Self::Argon2i(level) => {
                 let salt = level.generate_salt();
                 let key = level.derive_key(password.as_bytes(), salt.as_ref())?;
-                let detail = format!("?salt={}", salt.as_hex());
+                let detail = format!("?salt={}", HexRepr(salt));
                 Ok((key, detail))
             }
         }
@@ -71,7 +70,7 @@ impl KdfMethod {
     pub(crate) fn derive_key(&self, password: &str, detail: &str) -> Result<StoreKey, Error> {
         match self {
             Self::Argon2i(level) => {
-                let salt = parse_salt::<Argon2Salt>(detail)?;
+                let salt = parse_salt(detail)?;
                 let key = level.derive_key(password.as_bytes(), salt.as_ref())?;
                 Ok(key)
             }
@@ -79,10 +78,10 @@ impl KdfMethod {
     }
 }
 
-fn parse_salt<L: ArrayLength<u8>>(detail: &str) -> Result<ArrayKey<L>, Error> {
+fn parse_salt(detail: &str) -> Result<[u8; SALT_LENGTH], Error> {
     let opts = Options::parse_uri(detail)?;
     if let Some(salt) = opts.query.get("salt") {
-        ArrayKey::<L>::try_new_with(|arr| {
+        FixedBufferCore::try_new_with(|arr| {
             hex::decode_to_slice(salt, arr).map_err(|_| err_msg!(Input, "Invalid salt"))
         })
     } else {

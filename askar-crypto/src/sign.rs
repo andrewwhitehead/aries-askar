@@ -3,18 +3,38 @@
 use core::str::FromStr;
 
 #[cfg(feature = "alloc")]
-use crate::buffer::SecretBytes;
-use crate::{alg::normalize_alg, buffer::WriteBuffer, error::Error};
+use crate::buffer::SecretVec;
+use crate::{
+    alg::normalize_alg,
+    buffer::{WriteBuffer, Writer},
+    error::Error,
+};
 
-/// Signature creation operations
-pub trait KeySign: KeySigVerify {
+/// Signature creation operations.
+pub trait CreateSignature {
+    /// Get the default signature type of this signature creator.
+    fn default_signature_type(&self) -> Option<SignatureType>;
+
+    /// Create a signature of the requested type and copy it to the
+    /// provided buffer.
+    fn copy_signature<'a>(
+        &self,
+        message: &[u8],
+        sig_type: Option<SignatureType>,
+        buf: &'a mut [u8],
+    ) -> Result<&'a [u8], Error> {
+        let mut w = Writer::from_slice(buf);
+        self.write_signature(message, sig_type, &mut w)?;
+        Ok(w.into())
+    }
+
     /// Create a signature of the requested type and write it to the
     /// provided buffer.
     fn write_signature(
         &self,
         message: &[u8],
         sig_type: Option<SignatureType>,
-        out: &mut dyn WriteBuffer,
+        buf: &mut dyn WriteBuffer,
     ) -> Result<(), Error>;
 
     #[cfg(feature = "alloc")]
@@ -25,15 +45,15 @@ pub trait KeySign: KeySigVerify {
         &self,
         message: &[u8],
         sig_type: Option<SignatureType>,
-    ) -> Result<SecretBytes, Error> {
-        let mut buf = SecretBytes::with_capacity(128);
+    ) -> Result<SecretVec, Error> {
+        let mut buf = SecretVec::with_capacity(128);
         self.write_signature(message, sig_type, &mut buf)?;
         Ok(buf)
     }
 }
 
-/// Signature verification operations
-pub trait KeySigVerify {
+/// Signature verification operations.
+pub trait VerifySignature {
     /// Check the validity of signature over a message with the
     /// specified signature type.
     fn verify_signature(

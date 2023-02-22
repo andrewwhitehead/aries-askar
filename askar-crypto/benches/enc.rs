@@ -5,12 +5,12 @@ use askar_crypto::{
     alg::{
         aes::{A128CbcHs256, A128Gcm, A256CbcHs512, A256Gcm, AesKey},
         chacha20::{Chacha20Key, C20P, XC20P},
-        AnyKey, AnyKeyCreate, Chacha20Types, KeyAlg,
+        Chacha20Types, KeyAlgorithm,
     },
-    buffer::{SecretBytes, WriteBuffer},
-    encrypt::{KeyAeadInPlace, KeyAeadMeta},
+    buffer::{SecretVec, WriteBuffer},
+    encrypt::{Aead, AeadMeta},
+    key::{AllocKeyLoader, KeyGen},
     random::fill_random,
-    repr::KeyGen,
 };
 
 use criterion::{black_box, Criterion};
@@ -89,11 +89,11 @@ fn criterion_benchmark(c: &mut Criterion) {
         })
     });
 
-    // test overhead of SecretBytes
+    // test overhead of SecretVec
     c.bench_function("chacha20-poly1305 encrypt alloc", move |b| {
         let key = Chacha20Key::<C20P>::random().unwrap();
         let nonce = Chacha20Key::<C20P>::random_nonce();
-        let mut buffer = SecretBytes::with_capacity(ALLOC_SIZE);
+        let mut buffer = SecretVec::with_capacity(ALLOC_SIZE);
         b.iter(|| {
             buffer.clear();
             buffer.buffer_write(black_box(message)).unwrap();
@@ -101,17 +101,21 @@ fn criterion_benchmark(c: &mut Criterion) {
         })
     });
 
-    // test overhead of AnyKey
+    // test overhead of dyn Key
     c.bench_function("chacha20-poly1305 encrypt as any", move |b| {
-        let key = Box::<AnyKey>::random(KeyAlg::Chacha20(Chacha20Types::C20P)).unwrap();
+        let key = KeyAlgorithm::Chacha20(Chacha20Types::C20P)
+            .box_load()
+            .random()
+            .unwrap();
         let mut nonce = [0u8; 255];
-        let nonce_len = key.aead_params().nonce_length;
+        let aead = key.as_aead().expect("AEAD not supported");
+        let nonce_len = aead.aead_params().nonce_length;
         fill_random(&mut nonce[..nonce_len]);
         let mut buffer = Vec::with_capacity(ALLOC_SIZE);
         b.iter(|| {
             buffer.clear();
             buffer.extend_from_slice(black_box(message));
-            key.encrypt_in_place(&mut buffer, &nonce[..nonce_len], &[])
+            aead.encrypt_in_place(&mut buffer, &nonce[..nonce_len], &[])
                 .unwrap();
         })
     });

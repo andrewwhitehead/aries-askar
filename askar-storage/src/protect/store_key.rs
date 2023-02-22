@@ -1,13 +1,15 @@
+use askar_crypto::buffer::SecretArray;
+
 use super::kdf::KdfMethod;
 
 use super::pass_key::PassKey;
 use crate::{
     crypto::{
         alg::chacha20::{Chacha20Key, C20P},
-        buffer::{ArrayKey, ResizeBuffer, SecretBytes},
-        encrypt::{KeyAeadInPlace, KeyAeadMeta},
-        random::RandomDet,
-        repr::{KeyGen, KeyMeta, KeySecretBytes},
+        buffer::{FixedBufferCore, ResizeBuffer, SecretVec},
+        encrypt::{Aead, AeadMeta},
+        key::KeyGen,
+        repr::{FromSecretBytes, SecretBytesCore},
     },
     error::Error,
 };
@@ -18,12 +20,12 @@ pub const PREFIX_NONE: &str = "none";
 
 pub type StoreKeyType = Chacha20Key<C20P>;
 
-type StoreKeyNonce = ArrayKey<<StoreKeyType as KeyAeadMeta>::NonceSize>;
+type StoreKeyNonce = <StoreKeyType as AeadMeta>::Nonce;
 
 /// Create a new raw (non-derived) store key
 pub fn generate_raw_store_key(seed: Option<&[u8]>) -> Result<PassKey<'static>, Error> {
     let key = if let Some(seed) = seed {
-        StoreKey::from(StoreKeyType::generate(RandomDet::new(seed))?)
+        StoreKey::from(StoreKeyType::seeded(seed)?)
     } else {
         StoreKey::from(StoreKeyType::random()?)
     };
@@ -31,7 +33,7 @@ pub fn generate_raw_store_key(seed: Option<&[u8]>) -> Result<PassKey<'static>, E
 }
 
 pub fn parse_raw_store_key(raw_key: &str) -> Result<StoreKey, Error> {
-    ArrayKey::<<StoreKeyType as KeyMeta>::KeySize>::temp(|key| {
+    SecretArray::<{ StoreKeyType::SECRET_BYTES_LEN }>::with_temp_array(|key| {
         let key_len = bs58::decode(raw_key)
             .into(&mut *key)
             .map_err(|_| err_msg!(Input, "Error parsing raw key as base58 value"))?;
@@ -60,10 +62,10 @@ impl StoreKey {
         self.0.is_none()
     }
 
-    pub fn wrap_data(&self, mut data: SecretBytes) -> Result<Vec<u8>, Error> {
+    pub fn wrap_data(&self, mut data: SecretVec) -> Result<Vec<u8>, Error> {
         match &self.0 {
             Some(key) => {
-                let nonce = StoreKeyNonce::random();
+                let nonce = StoreKeyNonce::random()?;
                 key.encrypt_in_place(&mut data, nonce.as_ref(), &[])?;
                 data.buffer_insert(0, nonce.as_ref())?;
                 Ok(data.into_vec())
@@ -72,11 +74,11 @@ impl StoreKey {
         }
     }
 
-    pub fn unwrap_data(&self, ciphertext: Vec<u8>) -> Result<SecretBytes, Error> {
+    pub fn unwrap_data(&self, ciphertext: Vec<u8>) -> Result<SecretVec, Error> {
         match &self.0 {
             Some(key) => {
                 let nonce = StoreKeyNonce::from_slice(&ciphertext[..StoreKeyNonce::SIZE]);
-                let mut buffer = SecretBytes::from(ciphertext);
+                let mut buffer = SecretVec::from(ciphertext);
                 buffer.buffer_remove(0..StoreKeyNonce::SIZE)?;
                 key.decrypt_in_place(&mut buffer, nonce.as_ref(), &[])?;
                 Ok(buffer)
@@ -87,7 +89,8 @@ impl StoreKey {
 
     pub fn to_passkey(&self) -> PassKey<'static> {
         if let Some(key) = self.0.as_ref() {
-            PassKey::from(key.with_secret_bytes(|sk| bs58::encode(sk.unwrap()).into_string()))
+            key.access_secret_bytes(|buf| Ok(PassKey::from(bs58::encode(buf).into_string())))
+                .unwrap()
         } else {
             PassKey::empty()
         }

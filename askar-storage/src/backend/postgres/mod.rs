@@ -707,7 +707,7 @@ fn perform_scan(
         drop(rows);
         drop(active);
 
-        if batch.len() > 0 {
+        if !batch.is_empty() {
             yield batch;
         }
     }

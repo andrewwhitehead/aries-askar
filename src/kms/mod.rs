@@ -10,7 +10,7 @@ use zeroize::Zeroize;
 use crate::error::Error;
 
 mod enc;
-pub use enc::{Encrypted, SecretBytes, ToDecrypt};
+pub use enc::{Encrypted, SecretVec, ToDecrypt};
 
 mod envelope;
 pub use self::envelope::{
@@ -22,7 +22,7 @@ mod entry;
 pub use self::entry::{KeyEntry, KeyParams};
 
 mod local_key;
-pub use self::local_key::{KeyAlg, LocalKey};
+pub use self::local_key::{KeyAlgorithm, LocalKey};
 
 /// Supported categories of KMS entries
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Zeroize)]

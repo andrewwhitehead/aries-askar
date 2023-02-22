@@ -17,8 +17,7 @@ use crate::{
 #[cfg(feature = "any_key")]
 mod any;
 #[cfg(feature = "any_key")]
-#[cfg_attr(docsrs, doc(cfg(feature = "any_key")))]
-pub use any::{AnyKey, AnyKeyCreate};
+pub use self::any::{AnyJwkLoader, KeyAlgorithmLoader};
 
 #[cfg(feature = "aes")]
 #[cfg_attr(docsrs, doc(cfg(feature = "aes")))]
@@ -56,9 +55,9 @@ pub mod p256;
 pub mod p384;
 
 /// Supported key algorithms
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Zeroize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
-pub enum KeyAlg {
+pub enum KeyAlgorithm {
     /// AES
     Aes(AesTypes),
     /// BLS12-381
@@ -71,9 +70,11 @@ pub enum KeyAlg {
     X25519,
     /// Elliptic Curve key for signing or key exchange
     EcCurve(EcCurves),
+    /// Catch-all for custom key types
+    Custom(&'static str),
 }
 
-impl KeyAlg {
+impl KeyAlgorithm {
     /// Get a reference to a string representing the `KeyAlg`
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -93,17 +94,18 @@ impl KeyAlg {
             Self::EcCurve(EcCurves::Secp256k1) => "k256",
             Self::EcCurve(EcCurves::Secp256r1) => "p256",
             Self::EcCurve(EcCurves::Secp384r1) => "p384",
+            Self::Custom(s) => s,
         }
     }
 }
 
-impl AsRef<str> for KeyAlg {
+impl AsRef<str> for KeyAlgorithm {
     fn as_ref(&self) -> &str {
         self.as_str()
     }
 }
 
-impl FromStr for KeyAlg {
+impl FromStr for KeyAlgorithm {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -201,7 +203,7 @@ impl Iterator for NormalizedIter<'_> {
     }
 }
 
-impl Display for KeyAlg {
+impl Display for KeyAlgorithm {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
     }
@@ -257,13 +259,6 @@ pub enum EcCurves {
     Secp384r1,
     /// Koblitz 256 curve
     Secp256k1,
-}
-
-/// A trait for accessing the algorithm of a key, used when
-/// converting to generic `AnyKey` instances.
-pub trait HasKeyAlg: Debug {
-    /// Get the corresponding key algorithm.
-    fn algorithm(&self) -> KeyAlg;
 }
 
 #[cfg(test)]

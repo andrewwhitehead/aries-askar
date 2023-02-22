@@ -9,16 +9,17 @@ use aes_core::{
 };
 use subtle::ConstantTimeEq;
 
-use super::{AesKey, AesType, NonceSize, TagSize};
+use super::{AesKey, AesType};
 use crate::{
     alg::AesTypes,
-    buffer::ResizeBuffer,
-    encrypt::{KeyAeadInPlace, KeyAeadMeta, KeyAeadParams},
+    buffer::{FixedBufferCore, ResizeBuffer, SecretArray},
+    encrypt::{Aead, AeadMeta, AeadParams},
     error::Error,
     generic_array::{
         typenum::{consts, Unsigned},
         GenericArray,
     },
+    repr::SecretBytesCore,
 };
 
 const AES_KW_DEFAULT_IV: [u8; 8] = [166, 166, 166, 166, 166, 166, 166, 166];
@@ -27,7 +28,9 @@ const AES_KW_DEFAULT_IV: [u8; 8] = [166, 166, 166, 166, 166, 166, 166, 166];
 pub type A128Kw = AesKeyWrap<Aes128>;
 
 impl AesType for A128Kw {
-    type KeySize = <Aes128 as KeySizeUser>::KeySize;
+    type Repr = SecretArray<{ <Aes128 as KeySizeUser>::KeySize::USIZE }>;
+    type Nonce = [u8; Self::NONCE_LENGTH];
+    type Tag = [u8; Self::TAG_LENGTH];
     const ALG_TYPE: AesTypes = AesTypes::A128Kw;
     const JWK_ALG: &'static str = "A128KW";
 }
@@ -36,7 +39,9 @@ impl AesType for A128Kw {
 pub type A256Kw = AesKeyWrap<Aes256>;
 
 impl AesType for A256Kw {
-    type KeySize = <Aes256 as KeySizeUser>::KeySize;
+    type Repr = SecretArray<{ <Aes256 as KeySizeUser>::KeySize::USIZE }>;
+    type Nonce = [u8; Self::NONCE_LENGTH];
+    type Tag = [u8; Self::TAG_LENGTH];
     const ALG_TYPE: AesTypes = AesTypes::A256Kw;
     const JWK_ALG: &'static str = "A256KW";
 }
@@ -45,21 +50,27 @@ impl AesType for A256Kw {
 #[derive(Debug)]
 pub struct AesKeyWrap<C>(PhantomData<C>);
 
-impl<C> KeyAeadMeta for AesKey<AesKeyWrap<C>>
+impl<C> AesKeyWrap<C>
+where
+    C: BlockCipher,
+{
+    const NONCE_LENGTH: usize = 0;
+    const TAG_LENGTH: usize = 8;
+}
+
+impl<C> AeadMeta for AesKey<AesKeyWrap<C>>
 where
     AesKeyWrap<C>: AesType,
 {
-    type NonceSize = consts::U0;
-    type TagSize = consts::U8;
+    type Nonce = <AesKeyWrap<C> as AesType>::Nonce;
+    type Tag = <AesKeyWrap<C> as AesType>::Tag;
 }
 
-impl<C> KeyAeadInPlace for AesKey<AesKeyWrap<C>>
+impl<C> Aead for AesKey<AesKeyWrap<C>>
 where
+    Self: AeadMeta,
     AesKeyWrap<C>: AesType,
-    C: KeyInit<KeySize = <AesKeyWrap<C> as AesType>::KeySize>
-        + BlockCipher<BlockSize = consts::U16>
-        + BlockDecrypt
-        + BlockEncrypt,
+    C: KeyInit + BlockCipher<BlockSize = consts::U16> + BlockDecrypt + BlockEncrypt,
 {
     fn encrypt_in_place(
         &self,
@@ -85,23 +96,26 @@ where
         buffer.buffer_insert(0, &[0u8; 8])?;
         buf_len += 8;
 
-        let aes = C::new(self.0.as_ref());
-        let mut iv = AES_KW_DEFAULT_IV;
-        let mut block = GenericArray::default();
-        for j in 0..6 {
-            for (i, chunk) in buffer.as_mut()[8..].chunks_exact_mut(8).enumerate() {
-                block[0..8].copy_from_slice(iv.as_ref());
-                block[8..16].copy_from_slice(chunk);
-                aes.encrypt_block(&mut block);
-                let t = (((blocks * j) + i + 1) as u64).to_be_bytes();
-                iv.copy_from_slice(&block[0..8]);
-                for (a, t) in iv.as_mut().iter_mut().zip(&t[..]) {
-                    *a ^= t;
+        self.0.access_secret_bytes(|key| {
+            let aes = C::new(key.into());
+            let mut iv = AES_KW_DEFAULT_IV;
+            let mut block = GenericArray::default();
+            for j in 0..6 {
+                for (i, chunk) in buffer.as_mut()[8..].chunks_exact_mut(8).enumerate() {
+                    block[0..8].copy_from_slice(iv.as_ref());
+                    block[8..16].copy_from_slice(chunk);
+                    aes.encrypt_block(&mut block);
+                    let t = (((blocks * j) + i + 1) as u64).to_be_bytes();
+                    iv.copy_from_slice(&block[0..8]);
+                    for (a, t) in iv.as_mut().iter_mut().zip(&t[..]) {
+                        *a ^= t;
+                    }
+                    chunk.copy_from_slice(&block[8..16]);
                 }
-                chunk.copy_from_slice(&block[8..16]);
             }
-        }
-        buffer.as_mut()[0..8].copy_from_slice(&iv[..]);
+            buffer.as_mut()[0..8].copy_from_slice(&iv[..]);
+            Ok(())
+        })?;
         Ok(buf_len)
     }
 
@@ -129,24 +143,28 @@ where
         }
         blocks -= 1;
 
-        let aes = C::new(self.0.as_ref());
-        let mut iv = *TryInto::<&[u8; 8]>::try_into(&buffer.as_ref()[0..8]).unwrap();
+        let mut iv = *<&[u8; 8]>::try_from(&buffer.as_ref()[0..8]).unwrap();
         buffer.buffer_remove(0..8)?;
 
-        let mut block = GenericArray::default();
-        for j in (0..6).into_iter().rev() {
-            for (i, chunk) in buffer.as_mut().chunks_exact_mut(8).enumerate().rev() {
-                block[0..8].copy_from_slice(iv.as_ref());
-                let t = (((blocks * j) + i + 1) as u64).to_be_bytes();
-                for (a, t) in block[0..8].iter_mut().zip(&t[..]) {
-                    *a ^= t;
+        self.0.access_secret_bytes(|key| {
+            let aes = C::new(key.into());
+
+            let mut block = GenericArray::default();
+            for j in (0..6).into_iter().rev() {
+                for (i, chunk) in buffer.as_mut().chunks_exact_mut(8).enumerate().rev() {
+                    block[0..8].copy_from_slice(iv.as_ref());
+                    let t = (((blocks * j) + i + 1) as u64).to_be_bytes();
+                    for (a, t) in block[0..8].iter_mut().zip(&t[..]) {
+                        *a ^= t;
+                    }
+                    block[8..16].copy_from_slice(chunk);
+                    aes.decrypt_block(&mut block);
+                    iv.copy_from_slice(&block[0..8]);
+                    chunk.copy_from_slice(&block[8..16]);
                 }
-                block[8..16].copy_from_slice(chunk);
-                aes.decrypt_block(&mut block);
-                iv.copy_from_slice(&block[0..8]);
-                chunk.copy_from_slice(&block[8..16]);
             }
-        }
+            Ok(())
+        })?;
 
         if iv.ct_eq(&AES_KW_DEFAULT_IV).unwrap_u8() == 1 {
             Ok(())
@@ -155,10 +173,10 @@ where
         }
     }
 
-    fn aead_params(&self) -> KeyAeadParams {
-        KeyAeadParams {
-            nonce_length: NonceSize::<Self>::USIZE,
-            tag_length: TagSize::<Self>::USIZE,
+    fn aead_params(&self) -> AeadParams {
+        AeadParams {
+            nonce_length: <Self as AeadMeta>::Nonce::SIZE,
+            tag_length: <Self as AeadMeta>::Tag::SIZE,
         }
     }
 }
@@ -166,17 +184,19 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::buffer::SecretBytes;
-    use crate::repr::KeySecretBytes;
+    #[cfg(feature = "alloc")]
+    use crate::buffer::SecretVec;
+    use crate::repr::FromSecretBytes;
     use std::string::ToString;
 
+    #[cfg(feature = "alloc")]
     #[test]
     // from RFC 3394 test vectors
     fn key_wrap_128_expected() {
         let key =
             AesKey::<A128Kw>::from_secret_bytes(&hex!("000102030405060708090a0b0c0d0e0f")).unwrap();
         let input = &hex!("00112233445566778899aabbccddeeff");
-        let mut buffer = SecretBytes::from_slice(input);
+        let mut buffer = SecretVec::from_slice(input);
         key.encrypt_in_place(&mut buffer, &[], &[]).unwrap();
         assert_eq!(
             buffer.as_hex().to_string(),
@@ -186,6 +206,7 @@ mod tests {
         assert_eq!(buffer, &input[..]);
     }
 
+    #[cfg(feature = "alloc")]
     #[test]
     // from RFC 3394 test vectors
     fn key_wrap_256_expected() {
@@ -194,7 +215,7 @@ mod tests {
         ))
         .unwrap();
         let input = &hex!("00112233445566778899aabbccddeeff");
-        let mut buffer = SecretBytes::from_slice(input);
+        let mut buffer = SecretVec::from_slice(input);
         key.encrypt_in_place(&mut buffer, &[], &[]).unwrap();
         assert_eq!(
             buffer.as_hex().to_string(),

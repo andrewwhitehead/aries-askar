@@ -1,6 +1,6 @@
 use aries_askar::{
     future::block_on,
-    kms::{KeyAlg, LocalKey},
+    kms::{KeyAlgorithm, LocalKey},
     Store, StoreKeyMethod,
 };
 
@@ -24,7 +24,8 @@ fn keypair_create_fetch() {
         .await
         .expect(ERR_OPEN);
 
-        let keypair = LocalKey::generate(KeyAlg::Ed25519, false).expect("Error creating keypair");
+        let keypair =
+            LocalKey::generate(KeyAlgorithm::Ed25519, false).expect("Error creating keypair");
 
         let mut conn = db.session(None).await.expect(ERR_SESSION);
 
@@ -39,7 +40,7 @@ fn keypair_create_fetch() {
             .await
             .expect("Error fetching key")
             .expect(ERR_REQ_ROW);
-        assert_eq!(found.algorithm(), Some(KeyAlg::Ed25519.as_str()));
+        assert_eq!(found.algorithm(), Some(KeyAlgorithm::Ed25519.as_str()));
         assert_eq!(found.name(), key_name);
         assert_eq!(found.metadata(), Some(metadata));
         assert!(found.is_local());

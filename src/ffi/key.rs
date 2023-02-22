@@ -9,7 +9,7 @@ use super::{
 };
 use crate::kms::{
     crypto_box, crypto_box_open, crypto_box_random_nonce, crypto_box_seal, crypto_box_seal_open,
-    derive_key_ecdh_1pu, derive_key_ecdh_es, KeyAlg, LocalKey,
+    derive_key_ecdh_1pu, derive_key_ecdh_es, KeyAlgorithm, LocalKey,
 };
 
 pub type LocalKeyHandle = ArcHandle<LocalKey>;
@@ -30,7 +30,7 @@ pub extern "C" fn askar_key_generate(
         let alg = alg.as_opt_str().unwrap_or_default();
         trace!("Generate key: {}", alg);
         check_useful_c_ptr!(out);
-        let alg = KeyAlg::from_str(alg)?;
+        let alg = KeyAlgorithm::from_str(alg)?;
         let key = LocalKey::generate(alg, ephemeral != 0)?;
         unsafe { *out = LocalKeyHandle::create(key) };
         Ok(ErrorCode::Success)
@@ -48,7 +48,7 @@ pub extern "C" fn askar_key_from_seed(
         let alg = alg.as_opt_str().unwrap_or_default();
         trace!("Create key from seed: {}", alg);
         check_useful_c_ptr!(out);
-        let alg = KeyAlg::from_str(alg)?;
+        let alg = KeyAlgorithm::from_str(alg)?;
         let key = LocalKey::from_seed(alg, seed.as_slice(), method.as_opt_str())?;
         unsafe { *out = LocalKeyHandle::create(key) };
         Ok(ErrorCode::Success)
@@ -60,7 +60,7 @@ pub extern "C" fn askar_key_from_jwk(jwk: ByteBuffer, out: *mut LocalKeyHandle) 
     catch_err! {
         trace!("Load key from JWK");
         check_useful_c_ptr!(out);
-        let key = LocalKey::from_jwk_slice(jwk.as_slice())?;
+        let key = LocalKey::from_jwk(None, jwk.as_slice())?;
         unsafe { *out = LocalKeyHandle::create(key) };
         Ok(ErrorCode::Success)
     }
@@ -76,7 +76,7 @@ pub extern "C" fn askar_key_from_public_bytes(
         let alg = alg.as_opt_str().unwrap_or_default();
         trace!("Load key from public: {}", alg);
         check_useful_c_ptr!(out);
-        let alg = KeyAlg::from_str(alg)?;
+        let alg = KeyAlgorithm::from_str(alg)?;
         let key = LocalKey::from_public_bytes(alg, public.as_slice())?;
         unsafe { *out = LocalKeyHandle::create(key) };
         Ok(ErrorCode::Success)
@@ -108,7 +108,7 @@ pub extern "C" fn askar_key_from_secret_bytes(
         let alg = alg.as_opt_str().unwrap_or_default();
         trace!("Load key from secret: {}", alg);
         check_useful_c_ptr!(out);
-        let alg = KeyAlg::from_str(alg)?;
+        let alg = KeyAlgorithm::from_str(alg)?;
         let key = LocalKey::from_secret_bytes(alg, secret.as_slice())?;
         unsafe { *out = LocalKeyHandle::create(key) };
         Ok(ErrorCode::Success)
@@ -140,28 +140,8 @@ pub extern "C" fn askar_key_convert(
         let alg = alg.as_opt_str().unwrap_or_default();
         trace!("Convert key: {} to {}", handle, alg);
         check_useful_c_ptr!(out);
-        let alg = KeyAlg::from_str(alg)?;
+        let alg = KeyAlgorithm::from_str(alg)?;
         let key = handle.load()?.convert_key(alg)?;
-        unsafe { *out = LocalKeyHandle::create(key) };
-        Ok(ErrorCode::Success)
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn askar_key_from_key_exchange(
-    alg: FfiStr<'_>,
-    sk_handle: LocalKeyHandle,
-    pk_handle: LocalKeyHandle,
-    out: *mut LocalKeyHandle,
-) -> ErrorCode {
-    catch_err! {
-        let alg = alg.as_opt_str().unwrap_or_default();
-        trace!("Key exchange: {}, {}, {}", alg, sk_handle, pk_handle);
-        check_useful_c_ptr!(out);
-        let alg = KeyAlg::from_str(alg)?;
-        let sk = sk_handle.load()?;
-        let pk = pk_handle.load()?;
-        let key = sk.to_key_exchange(alg, &pk)?;
         unsafe { *out = LocalKeyHandle::create(key) };
         Ok(ErrorCode::Success)
     }
@@ -207,7 +187,7 @@ pub extern "C" fn askar_key_get_jwk_public(
         trace!("Get key JWK public: {}", handle);
         check_useful_c_ptr!(out);
         let key = handle.load()?;
-        let alg = alg.as_opt_str().map(KeyAlg::from_str).transpose()?;
+        let alg = alg.as_opt_str().map(KeyAlgorithm::from_str).transpose()?;
         let jwk = key.to_jwk_public(alg)?;
         unsafe { *out = rust_string_to_c(jwk) };
         Ok(ErrorCode::Success)
@@ -239,7 +219,7 @@ pub extern "C" fn askar_key_get_jwk_thumbprint(
         trace!("Get key JWK thumbprint: {}", handle);
         check_useful_c_ptr!(out);
         let key = handle.load()?;
-        let alg = alg.as_opt_str().map(KeyAlg::from_str).transpose()?;
+        let alg = alg.as_opt_str().map(KeyAlgorithm::from_str).transpose()?;
         let thumb = key.to_jwk_thumbprint(alg)?;
         unsafe { *out = rust_string_to_c(thumb) };
         Ok(ErrorCode::Success)
@@ -403,7 +383,7 @@ pub extern "C" fn askar_key_unwrap_key(
         trace!("Unwrap key: {}", handle);
         check_useful_c_ptr!(out);
         let key = handle.load()?;
-        let alg = KeyAlg::from_str(alg)?;
+        let alg = KeyAlgorithm::from_str(alg)?;
         let result = key.unwrap_key(alg, (ciphertext.as_slice(), tag.as_slice()), nonce.as_slice())?;
         unsafe { *out = LocalKeyHandle::create(result) };
         Ok(ErrorCode::Success)
@@ -516,7 +496,7 @@ pub extern "C" fn askar_key_derive_ecdh_es(
         let alg = alg.as_opt_str().unwrap_or_default();
         trace!("ECDH-ES: {}", alg);
         check_useful_c_ptr!(out);
-        let alg = KeyAlg::from_str(alg)?;
+        let alg = KeyAlgorithm::from_str(alg)?;
         let ephem_key = ephem_key.load()?;
         let recip_key = recip_key.load()?;
         let key = derive_key_ecdh_es(
@@ -550,7 +530,7 @@ pub extern "C" fn askar_key_derive_ecdh_1pu(
         let alg = alg.as_opt_str().unwrap_or_default();
         trace!("ECDH-1PU: {}", alg);
         check_useful_c_ptr!(out);
-        let alg = KeyAlg::from_str(alg)?;
+        let alg = KeyAlgorithm::from_str(alg)?;
         let ephem_key = ephem_key.load()?;
         let sender_key = sender_key.load()?;
         let recip_key = recip_key.load()?;

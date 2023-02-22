@@ -5,7 +5,7 @@ fn prove_single_signature_hidden_message() {
     use askar_crypto::{
         alg::bls::{BlsKeyPair, G2},
         buffer::Writer,
-        repr::KeySecretBytes,
+        repr::FromSecretBytes,
     };
     use hex_literal::hex;
 
@@ -61,7 +61,7 @@ fn multi_proof_matching_hidden_message() {
     use askar_bbs::{Blinding, DynGenerators, Message, Nonce, ProofChallenge, SignatureBuilder};
     use askar_crypto::{
         alg::bls::{BlsKeyPair, G2},
-        repr::KeySecretBytes,
+        repr::FromSecretBytes,
     };
     use hex_literal::hex;
 

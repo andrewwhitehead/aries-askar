@@ -7,7 +7,7 @@ use askar_bbs::{
 use askar_crypto::{
     alg::bls::{BlsKeyPair, G2},
     buffer::Writer,
-    repr::KeyGen,
+    key::KeyGen,
 };
 
 #[cfg(feature = "getrandom")]

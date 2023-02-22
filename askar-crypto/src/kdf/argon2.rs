@@ -2,17 +2,10 @@
 
 pub use argon2::{Algorithm, Version};
 
-use super::KeyDerivation;
-use crate::{
-    error::Error,
-    generic_array::typenum::{Unsigned, U16},
-};
-
-/// The size of the password salt
-pub type SaltSize = U16;
+use crate::{error::Error, key::KeyMaterial};
 
 /// The length of the password salt
-pub const SALT_LENGTH: usize = SaltSize::USIZE;
+pub const SALT_LENGTH: usize = 16;
 
 /// Standard parameters for 'interactive' level
 pub const PARAMS_INTERACTIVE: Params = Params {
@@ -60,9 +53,13 @@ impl<'a> Argon2<'a> {
     }
 }
 
-impl KeyDerivation for Argon2<'_> {
-    fn derive_key_bytes(&mut self, key_output: &mut [u8]) -> Result<(), Error> {
-        if key_output.len() > u32::MAX as usize {
+impl KeyMaterial for Argon2<'_> {
+    fn key_material_max_len(&self) -> Option<usize> {
+        Some(u32::MAX as usize)
+    }
+
+    fn copy_key_material(&mut self, buf: &mut [u8]) -> Result<(), Error> {
+        if buf.len() > u32::MAX as usize {
             return Err(err_msg!(
                 Usage,
                 "Output length exceeds max for argon2i hash"
@@ -76,8 +73,9 @@ impl KeyDerivation for Argon2<'_> {
             self.params.version,
             pbuild.params().unwrap(),
         )
-        .hash_password_into(self.password, self.salt, key_output)
-        .map_err(|_| err_msg!(Unexpected, "Error deriving key"))
+        .hash_password_into(self.password, self.salt, buf)
+        .map_err(|_| err_msg!(Unexpected, "Error deriving key"))?;
+        Ok(())
     }
 }
 
@@ -92,7 +90,7 @@ mod tests {
         let mut output = [0u8; 32];
         Argon2::new(pass, salt, PARAMS_INTERACTIVE)
             .unwrap()
-            .derive_key_bytes(&mut output)
+            .copy_key_material(&mut output)
             .unwrap();
         assert_eq!(
             output,

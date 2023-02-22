@@ -9,9 +9,10 @@ use chacha20::{
 use rand::{CryptoRng, RngCore, SeedableRng};
 
 #[cfg(all(feature = "alloc", feature = "getrandom"))]
-use crate::buffer::SecretBytes;
+use crate::buffer::SecretVec;
 use crate::error::Error;
 use crate::generic_array::{typenum::Unsigned, GenericArray};
+use crate::key::KeyMaterial;
 
 /// The expected length of a seed for `fill_random_deterministic`
 pub const DETERMINISTIC_SEED_LENGTH: usize = <ChaCha20 as KeySizeUser>::KeySize::USIZE;
@@ -21,16 +22,10 @@ pub trait Rng: CryptoRng + RngCore + Debug {}
 
 impl<T: CryptoRng + RngCore + Debug> Rng for T {}
 
-/// A trait for generating raw key material, generally
-/// cryptographically random bytes
-pub trait KeyMaterial {
-    /// Read key material from the generator
-    fn read_okm(&mut self, buf: &mut [u8]);
-}
-
 impl<C: CryptoRng + RngCore> KeyMaterial for C {
-    fn read_okm(&mut self, buf: &mut [u8]) {
+    fn copy_key_material(&mut self, buf: &mut [u8]) -> Result<(), Error> {
         self.fill_bytes(buf);
+        Ok(())
     }
 }
 
@@ -134,8 +129,8 @@ impl RandomDet {
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 /// Create a new `SecretBytes` instance with random data.
 #[inline(always)]
-pub fn random_secret(len: usize) -> SecretBytes {
-    SecretBytes::new_with(len, fill_random)
+pub fn random_secret(len: usize) -> SecretVec {
+    SecretVec::new_with(len, fill_random)
 }
 
 #[cfg(test)]

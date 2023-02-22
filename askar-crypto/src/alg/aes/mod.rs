@@ -7,16 +7,15 @@ use aes_gcm::{Aes128Gcm, Aes256Gcm};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
-use super::{AesTypes, HasKeyAlg, KeyAlg};
+use super::{AesTypes, KeyAlgorithm};
 use crate::{
-    buffer::{ArrayKey, ResizeBuffer, Writer},
-    encrypt::{KeyAeadInPlace, KeyAeadMeta, KeyAeadParams},
+    buffer::{FixedBuffer, FixedSecret, ResizeBuffer, SecretArray},
+    encrypt::{Aead, AeadMeta, AeadParams},
     error::Error,
-    generic_array::{typenum::Unsigned, ArrayLength, GenericArray},
+    generic_array::{typenum::Unsigned, GenericArray},
     jwk::{JwkEncoder, ToJwk},
-    kdf::{FromKeyDerivation, FromKeyExchange, KeyDerivation, KeyExchange},
-    random::KeyMaterial,
-    repr::{KeyGen, KeyMeta, KeySecretBytes},
+    key::{ConcreteKey, KeyCore, KeyGen, KeyMaterial, KeyType},
+    repr::{FromSecretBytes, SecretBytesCore},
 };
 
 mod cbc_hmac;
@@ -30,8 +29,12 @@ pub const JWK_KEY_TYPE: &str = "oct";
 
 /// Trait implemented by supported AES authenticated encryption algorithms
 pub trait AesType: 'static {
-    /// The size of the key secret bytes
-    type KeySize: ArrayLength<u8>;
+    /// The key representation
+    type Repr: FixedSecret + for<'a> Deserialize<'a> + Serialize;
+    /// The AEAD nonce
+    type Nonce: FixedBuffer;
+    /// The AEAD tag
+    type Tag: FixedBuffer;
 
     /// The associated algorithm type
     const ALG_TYPE: AesTypes;
@@ -39,23 +42,21 @@ pub trait AesType: 'static {
     const JWK_ALG: &'static str;
 }
 
-type KeyType<A> = ArrayKey<<A as AesType>::KeySize>;
+type NonceSize<A> = <A as AeadCore>::NonceSize;
 
-type NonceSize<A> = <A as KeyAeadMeta>::NonceSize;
-
-type TagSize<A> = <A as KeyAeadMeta>::TagSize;
+type TagSize<A> = <A as AeadCore>::TagSize;
 
 /// An AES symmetric encryption key
 #[derive(Serialize, Deserialize, Zeroize)]
 #[serde(
     transparent,
     bound(
-        deserialize = "KeyType<T>: for<'a> Deserialize<'a>",
-        serialize = "KeyType<T>: Serialize"
+        deserialize = "T::Repr: for<'a> Deserialize<'a>",
+        serialize = "T::Repr: Serialize"
     )
 )]
 // SECURITY: ArrayKey is zeroized on drop
-pub struct AesKey<T: AesType>(KeyType<T>);
+pub struct AesKey<T: AesType>(T::Repr);
 
 impl<T: AesType> Clone for AesKey<T> {
     fn clone(&self) -> Self {
@@ -80,43 +81,54 @@ impl<T: AesType> PartialEq for AesKey<T> {
 
 impl<T: AesType> Eq for AesKey<T> {}
 
-impl<T: AesType> HasKeyAlg for AesKey<T> {
-    fn algorithm(&self) -> KeyAlg {
-        KeyAlg::Aes(T::ALG_TYPE)
+impl<T: AesType> KeyCore for AesKey<T>
+where
+    AesKey<T>: Aead,
+{
+    fn key_algorithm(&self) -> KeyAlgorithm {
+        KeyAlgorithm::Aes(T::ALG_TYPE)
+    }
+
+    fn key_type(&self) -> KeyType {
+        KeyType::Symmetric
+    }
+
+    fn as_aead(&self) -> Option<&dyn Aead> {
+        Some(self)
+    }
+
+    fn as_jwk_encoder(&self) -> Option<&dyn ToJwk> {
+        Some(self)
+    }
+
+    fn as_secret(&self) -> Option<&dyn crate::repr::ToSecretBytes> {
+        Some(self)
     }
 }
-
-impl<T: AesType> KeyMeta for AesKey<T> {
-    type KeySize = T::KeySize;
-}
+impl<T: AesType> ConcreteKey for AesKey<T> where AesKey<T>: Aead {}
 
 impl<T: AesType> KeyGen for AesKey<T> {
-    fn generate(rng: impl KeyMaterial) -> Result<Self, Error> {
-        Ok(AesKey(KeyType::<T>::generate(rng)))
+    fn generate(source: impl KeyMaterial) -> Result<Self, Error> {
+        Ok(AesKey(T::Repr::generate(source)?))
     }
 }
 
-impl<T: AesType> KeySecretBytes for AesKey<T> {
+impl<T: AesType> SecretBytesCore for AesKey<T> {
+    const SECRET_BYTES_LEN: usize = T::Repr::SIZE;
+
+    fn access_secret_bytes<O>(
+        &self,
+        f: impl FnOnce(&[u8]) -> Result<O, Error>,
+    ) -> Result<O, Error> {
+        self.0.access_secret_bytes(f)
+    }
+}
+
+impl<T: AesType> FromSecretBytes for AesKey<T> {
     fn from_secret_bytes(key: &[u8]) -> Result<Self, Error> {
-        if key.len() != KeyType::<T>::SIZE {
-            return Err(err_msg!(InvalidKeyData));
-        }
-        Ok(Self(KeyType::<T>::from_slice(key)))
-    }
-
-    fn with_secret_bytes<O>(&self, f: impl FnOnce(Option<&[u8]>) -> O) -> O {
-        f(Some(self.0.as_ref()))
-    }
-}
-
-impl<T: AesType> FromKeyDerivation for AesKey<T> {
-    fn from_key_derivation<D: KeyDerivation>(mut derive: D) -> Result<Self, Error>
-    where
-        Self: Sized,
-    {
-        Ok(Self(KeyType::<T>::try_new_with(|arr| {
-            derive.derive_key_bytes(arr)
-        })?))
+        Ok(Self(
+            T::Repr::try_from(key).map_err(|_| err_msg!(InvalidKeyData))?,
+        ))
     }
 }
 
@@ -128,28 +140,10 @@ impl<T: AesType> ToJwk for AesKey<T> {
         if !enc.is_thumbprint() {
             enc.add_str("alg", T::JWK_ALG)?;
         }
-        enc.add_as_base64("k", self.0.as_ref())?;
+        self.0
+            .access_secret_bytes(|key| enc.add_as_base64("k", key))?;
         enc.add_str("kty", JWK_KEY_TYPE)?;
         Ok(())
-    }
-}
-
-// for direct key agreement (not used currently)
-impl<Lhs, Rhs, T> FromKeyExchange<Lhs, Rhs> for AesKey<T>
-where
-    Lhs: KeyExchange<Rhs> + ?Sized,
-    Rhs: ?Sized,
-    T: AesType,
-{
-    fn from_key_exchange(lhs: &Lhs, rhs: &Rhs) -> Result<Self, Error> {
-        Ok(Self(KeyType::<T>::try_new_with(|arr| {
-            let mut buf = Writer::from_slice(arr);
-            lhs.write_key_exchange(rhs, &mut buf)?;
-            if buf.position() != T::KeySize::USIZE {
-                return Err(err_msg!(Usage, "Invalid length for key exchange output"));
-            }
-            Ok(())
-        })?))
     }
 }
 
@@ -157,7 +151,9 @@ where
 pub type A128Gcm = Aes128Gcm;
 
 impl AesType for A128Gcm {
-    type KeySize = <Self as KeySizeUser>::KeySize;
+    type Repr = SecretArray<{ <Self as KeySizeUser>::KeySize::USIZE }>;
+    type Nonce = [u8; NonceSize::<Self>::USIZE];
+    type Tag = [u8; TagSize::<Self>::USIZE];
 
     const ALG_TYPE: AesTypes = AesTypes::A128Gcm;
     const JWK_ALG: &'static str = "A128GCM";
@@ -167,22 +163,24 @@ impl AesType for A128Gcm {
 pub type A256Gcm = Aes256Gcm;
 
 impl AesType for A256Gcm {
-    type KeySize = <Self as KeySizeUser>::KeySize;
+    type Repr = SecretArray<{ <Self as KeySizeUser>::KeySize::USIZE }>;
+    type Nonce = [u8; NonceSize::<Self>::USIZE];
+    type Tag = [u8; TagSize::<Self>::USIZE];
 
     const ALG_TYPE: AesTypes = AesTypes::A256Gcm;
     const JWK_ALG: &'static str = "A256GCM";
 }
 
 // generic implementation applying to AesGcm
-impl<T: AeadCore + AesType> KeyAeadMeta for AesKey<T> {
-    type NonceSize = <T as AeadCore>::NonceSize;
-    type TagSize = <T as AeadCore>::TagSize;
+impl<T: AeadCore + AesType> AeadMeta for AesKey<T> {
+    type Nonce = T::Nonce;
+    type Tag = T::Tag;
 }
 
 // generic implementation applying to AesGcm
-impl<T> KeyAeadInPlace for AesKey<T>
+impl<T> Aead for AesKey<T>
 where
-    T: KeyInit + AeadInPlace + AesType<KeySize = <T as KeySizeUser>::KeySize>,
+    T: KeyInit + AeadInPlace + AesType,
 {
     /// Encrypt a secret value in place, appending the verification tag
     fn encrypt_in_place(
@@ -194,10 +192,14 @@ where
         if nonce.len() != T::NonceSize::USIZE {
             return Err(err_msg!(InvalidNonce));
         }
-        let enc = <T as KeyInit>::new(self.0.as_ref());
-        let tag = enc
-            .encrypt_in_place_detached(GenericArray::from_slice(nonce), aad, buffer.as_mut())
-            .map_err(|_| err_msg!(Encryption, "AEAD encryption error"))?;
+        let mut tag = GenericArray::default();
+        self.0.access_secret_bytes(|key| {
+            let enc = <T as KeyInit>::new(key.into());
+            tag = enc
+                .encrypt_in_place_detached(GenericArray::from_slice(nonce), aad, buffer.as_mut())
+                .map_err(|_| err_msg!(Encryption, "AEAD encryption error"))?;
+            Ok(())
+        })?;
         let ctext_len = buffer.as_ref().len();
         buffer.buffer_write(&tag[..])?;
         Ok(ctext_len)
@@ -220,20 +222,23 @@ where
         let tag_start = buf_len - T::TagSize::USIZE;
         let mut tag = GenericArray::default();
         tag.clone_from_slice(&buffer.as_ref()[tag_start..]);
-        let enc = <T as KeyInit>::new(self.0.as_ref());
-        enc.decrypt_in_place_detached(
-            GenericArray::from_slice(nonce),
-            aad,
-            &mut buffer.as_mut()[..tag_start],
-            &tag,
-        )
-        .map_err(|_| err_msg!(Encryption, "AEAD decryption error"))?;
+        self.0.access_secret_bytes(|key| {
+            let enc = <T as KeyInit>::new(key.into());
+            enc.decrypt_in_place_detached(
+                GenericArray::from_slice(nonce),
+                aad,
+                &mut buffer.as_mut()[..tag_start],
+                &tag,
+            )
+            .map_err(|_| err_msg!(Encryption, "AEAD decryption error"))?;
+            Ok(())
+        })?;
         buffer.buffer_resize(tag_start)?;
         Ok(())
     }
 
-    fn aead_params(&self) -> KeyAeadParams {
-        KeyAeadParams {
+    fn aead_params(&self) -> AeadParams {
+        AeadParams {
             nonce_length: T::NonceSize::USIZE,
             tag_length: T::TagSize::USIZE,
         }
@@ -243,34 +248,40 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::buffer::SecretBytes;
+    #[cfg(feature = "alloc")]
+    use crate::buffer::SecretVec;
+    use crate::buffer::Writer;
     use crate::repr::ToSecretBytes;
 
+    #[cfg(feature = "alloc")]
     #[test]
     fn encrypt_round_trip() {
         fn test_encrypt<T>()
         where
             T: AesType,
-            AesKey<T>: KeyAeadInPlace + KeyAeadMeta,
+            AesKey<T>: Aead + AeadMeta,
         {
             let input = b"hello";
             let aad = b"additional data";
             let key = AesKey::<T>::random().unwrap();
-            let mut buffer = SecretBytes::from_slice(input);
+            let mut buffer = SecretVec::from_slice(input);
             let params = key.aead_params();
             let pad_len = key.aead_padding(input.len());
             let nonce = AesKey::<T>::random_nonce();
-            key.encrypt_in_place(&mut buffer, &nonce, aad).unwrap();
+            key.encrypt_in_place(&mut buffer, nonce.as_ref(), aad)
+                .unwrap();
             let enc_len = buffer.len();
             assert_eq!(enc_len, input.len() + pad_len + params.tag_length);
             assert_ne!(&buffer[..], input);
             let mut dec = buffer.clone();
-            key.decrypt_in_place(&mut dec, &nonce, aad).unwrap();
+            key.decrypt_in_place(&mut dec, nonce.as_ref(), aad).unwrap();
             assert_eq!(&dec[..], input);
 
             // test tag validation
             buffer.as_mut()[enc_len - 1] = buffer.as_mut()[enc_len - 1].wrapping_add(1);
-            assert!(key.decrypt_in_place(&mut buffer, &nonce, aad).is_err());
+            assert!(key
+                .decrypt_in_place(&mut buffer, nonce.as_ref(), aad)
+                .is_err());
         }
         test_encrypt::<A128Gcm>();
         test_encrypt::<A256Gcm>();

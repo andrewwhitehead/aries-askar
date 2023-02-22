@@ -1,6 +1,6 @@
 use super::local_key::LocalKey;
 use crate::{
-    crypto::{alg::AnyKey, buffer::SecretBytes, jwk::FromJwk},
+    crypto::buffer::SecretVec,
     entry::{Entry, EntryTag},
     error::Error,
 };
@@ -18,13 +18,13 @@ pub struct KeyParams {
 
     /// The associated key data (JWK)
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub data: Option<SecretBytes>,
+    pub data: Option<SecretVec>,
 }
 
 impl KeyParams {
-    pub(crate) fn to_bytes(&self) -> Result<SecretBytes, Error> {
+    pub(crate) fn to_bytes(&self) -> Result<SecretVec, Error> {
         serde_cbor::to_vec(self)
-            .map(SecretBytes::from)
+            .map(SecretVec::from)
             .map_err(|e| err_msg!(Unexpected, "Error serializing key params: {}", e))
     }
 
@@ -106,11 +106,7 @@ impl KeyEntry {
     /// Create a local key instance from this key storage entry
     pub fn load_local_key(&self) -> Result<LocalKey, Error> {
         if let Some(key_data) = self.params.data.as_ref() {
-            let inner = Box::<AnyKey>::from_jwk_slice(key_data.as_ref())?;
-            Ok(LocalKey {
-                inner,
-                ephemeral: false,
-            })
+            LocalKey::from_jwk(None, key_data.as_ref())
         } else {
             Err(err_msg!("Missing key data"))
         }
@@ -126,7 +122,7 @@ mod tests {
         let params = KeyParams {
             metadata: Some("meta".to_string()),
             reference: None,
-            data: Some(SecretBytes::from(vec![0, 0, 0, 0])),
+            data: Some(SecretVec::from(vec![0, 0, 0, 0])),
         };
         let enc_params = params.to_bytes().unwrap();
         let p2 = KeyParams::from_slice(&enc_params).unwrap();

@@ -7,16 +7,15 @@ use chacha20poly1305::{ChaCha20Poly1305, XChaCha20Poly1305};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
-use super::{Chacha20Types, HasKeyAlg, KeyAlg};
+use super::{Chacha20Types, KeyAlgorithm};
 use crate::{
-    buffer::{ArrayKey, ResizeBuffer, Writer},
-    encrypt::{KeyAeadInPlace, KeyAeadMeta, KeyAeadParams},
+    buffer::{FixedBuffer, FixedSecret, ResizeBuffer, SecretArray},
+    encrypt::{Aead, AeadMeta, AeadParams},
     error::Error,
     generic_array::{typenum::Unsigned, GenericArray},
     jwk::{JwkEncoder, ToJwk},
-    kdf::{FromKeyDerivation, FromKeyExchange, KeyDerivation, KeyExchange},
-    random::KeyMaterial,
-    repr::{KeyGen, KeyMeta, KeySecretBytes},
+    key::{ConcreteKey, KeyCore, KeyGen, KeyMaterial, KeyType},
+    repr::{FromSecretBytes, SecretBytesCore},
 };
 
 /// The 'kty' value of a symmetric key JWK
@@ -26,6 +25,12 @@ pub const JWK_KEY_TYPE: &str = "oct";
 pub trait Chacha20Type: 'static {
     /// The AEAD implementation
     type Aead: KeyInit + AeadCore + AeadInPlace;
+    /// The key representation
+    type Repr: FixedSecret + for<'a> Deserialize<'a> + Serialize;
+    /// The AEAD nonce
+    type Nonce: FixedBuffer;
+    /// The AEAD tag
+    type Tag: FixedBuffer;
 
     /// The associated algorithm type
     const ALG_TYPE: Chacha20Types;
@@ -33,12 +38,19 @@ pub trait Chacha20Type: 'static {
     const JWK_ALG: &'static str;
 }
 
+type NonceSize<A> = <<A as Chacha20Type>::Aead as AeadCore>::NonceSize;
+
+type TagSize<A> = <<A as Chacha20Type>::Aead as AeadCore>::TagSize;
+
 /// ChaCha20-Poly1305
 #[derive(Debug)]
 pub struct C20P;
 
 impl Chacha20Type for C20P {
     type Aead = ChaCha20Poly1305;
+    type Repr = SecretArray<{ <ChaCha20Poly1305 as KeySizeUser>::KeySize::USIZE }>;
+    type Nonce = [u8; NonceSize::<Self>::USIZE];
+    type Tag = [u8; TagSize::<Self>::USIZE];
 
     const ALG_TYPE: Chacha20Types = Chacha20Types::C20P;
     const JWK_ALG: &'static str = "C20P";
@@ -50,32 +62,29 @@ pub struct XC20P;
 
 impl Chacha20Type for XC20P {
     type Aead = XChaCha20Poly1305;
+    type Repr = SecretArray<{ <XChaCha20Poly1305 as KeySizeUser>::KeySize::USIZE }>;
+    type Nonce = [u8; NonceSize::<Self>::USIZE];
+    type Tag = [u8; TagSize::<Self>::USIZE];
 
     const ALG_TYPE: Chacha20Types = Chacha20Types::XC20P;
     const JWK_ALG: &'static str = "XC20P";
 }
-
-type KeyType<A> = ArrayKey<<<A as Chacha20Type>::Aead as KeySizeUser>::KeySize>;
-
-type NonceSize<A> = <<A as Chacha20Type>::Aead as AeadCore>::NonceSize;
-
-type TagSize<A> = <<A as Chacha20Type>::Aead as AeadCore>::TagSize;
 
 /// A ChaCha20 symmetric encryption key
 #[derive(Serialize, Deserialize, Zeroize)]
 #[serde(
     transparent,
     bound(
-        deserialize = "KeyType<T>: for<'a> Deserialize<'a>",
-        serialize = "KeyType<T>: Serialize"
+        deserialize = "T::Repr: for<'a> Deserialize<'a>",
+        serialize = "T::Repr: Serialize"
     )
 )]
 // SECURITY: ArrayKey is zeroized on drop
-pub struct Chacha20Key<T: Chacha20Type>(KeyType<T>);
+pub struct Chacha20Key<T: Chacha20Type>(T::Repr);
 
 impl<T: Chacha20Type> Chacha20Key<T> {
     /// The length of the secret key in bytes
-    pub const KEY_LENGTH: usize = KeyType::<T>::SIZE;
+    pub const KEY_LENGTH: usize = T::Repr::SIZE;
     /// The length of the AEAD encryption nonce
     pub const NONCE_LENGTH: usize = NonceSize::<T>::USIZE;
     /// The length of the AEAD encryption tag
@@ -105,52 +114,60 @@ impl<T: Chacha20Type> PartialEq for Chacha20Key<T> {
 
 impl<T: Chacha20Type> Eq for Chacha20Key<T> {}
 
-impl<T: Chacha20Type> HasKeyAlg for Chacha20Key<T> {
-    fn algorithm(&self) -> KeyAlg {
-        KeyAlg::Chacha20(T::ALG_TYPE)
+impl<T: Chacha20Type> KeyCore for Chacha20Key<T> {
+    fn key_algorithm(&self) -> KeyAlgorithm {
+        KeyAlgorithm::Chacha20(T::ALG_TYPE)
+    }
+
+    fn key_type(&self) -> KeyType {
+        KeyType::Symmetric
+    }
+
+    fn as_aead(&self) -> Option<&dyn Aead> {
+        Some(self)
+    }
+
+    fn as_jwk_encoder(&self) -> Option<&dyn ToJwk> {
+        Some(self)
+    }
+
+    fn as_secret(&self) -> Option<&dyn crate::repr::ToSecretBytes> {
+        Some(self)
     }
 }
-
-impl<T: Chacha20Type> KeyMeta for Chacha20Key<T> {
-    type KeySize = <T::Aead as KeySizeUser>::KeySize;
-}
+impl<T: Chacha20Type> ConcreteKey for Chacha20Key<T> {}
 
 impl<T: Chacha20Type> KeyGen for Chacha20Key<T> {
     fn generate(rng: impl KeyMaterial) -> Result<Self, Error> {
-        Ok(Chacha20Key(KeyType::<T>::generate(rng)))
+        Ok(Chacha20Key(T::Repr::generate(rng)?))
     }
 }
 
-impl<T: Chacha20Type> KeySecretBytes for Chacha20Key<T> {
+impl<T: Chacha20Type> SecretBytesCore for Chacha20Key<T> {
+    const SECRET_BYTES_LEN: usize = Chacha20Key::<T>::KEY_LENGTH;
+
+    fn access_secret_bytes<O>(
+        &self,
+        f: impl FnOnce(&[u8]) -> Result<O, Error>,
+    ) -> Result<O, Error> {
+        self.0.access_secret_bytes(f)
+    }
+}
+
+impl<T: Chacha20Type> FromSecretBytes for Chacha20Key<T> {
     fn from_secret_bytes(key: &[u8]) -> Result<Self, Error> {
-        if key.len() != KeyType::<T>::SIZE {
-            return Err(err_msg!(InvalidKeyData));
-        }
-        Ok(Self(KeyType::<T>::from_slice(key)))
-    }
-
-    fn with_secret_bytes<O>(&self, f: impl FnOnce(Option<&[u8]>) -> O) -> O {
-        f(Some(self.0.as_ref()))
+        Ok(Self(
+            T::Repr::try_from(key).map_err(|_| err_msg!(InvalidKeyData))?,
+        ))
     }
 }
 
-impl<T: Chacha20Type> FromKeyDerivation for Chacha20Key<T> {
-    fn from_key_derivation<D: KeyDerivation>(mut derive: D) -> Result<Self, Error>
-    where
-        Self: Sized,
-    {
-        Ok(Self(KeyType::<T>::try_new_with(|arr| {
-            derive.derive_key_bytes(arr)
-        })?))
-    }
+impl<T: Chacha20Type> AeadMeta for Chacha20Key<T> {
+    type Nonce = T::Nonce;
+    type Tag = T::Tag;
 }
 
-impl<T: Chacha20Type> KeyAeadMeta for Chacha20Key<T> {
-    type NonceSize = NonceSize<T>;
-    type TagSize = TagSize<T>;
-}
-
-impl<T: Chacha20Type> KeyAeadInPlace for Chacha20Key<T> {
+impl<T: Chacha20Type> Aead for Chacha20Key<T> {
     /// Encrypt a secret value in place, appending the verification tag
     fn encrypt_in_place(
         &self,
@@ -162,10 +179,14 @@ impl<T: Chacha20Type> KeyAeadInPlace for Chacha20Key<T> {
             return Err(err_msg!(InvalidNonce));
         }
         let nonce = GenericArray::from_slice(nonce);
-        let chacha = T::Aead::new(self.0.as_ref());
-        let tag = chacha
-            .encrypt_in_place_detached(nonce, aad, buffer.as_mut())
-            .map_err(|_| err_msg!(Encryption, "AEAD encryption error"))?;
+        let mut tag = GenericArray::default();
+        self.0.access_secret_bytes(|key| {
+            let chacha = T::Aead::new(key.into());
+            tag = chacha
+                .encrypt_in_place_detached(nonce, aad, buffer.as_mut())
+                .map_err(|_| err_msg!(Encryption, "AEAD encryption error"))?;
+            Ok(())
+        })?;
         let ctext_len = buffer.as_ref().len();
         buffer.buffer_write(&tag[..])?;
         Ok(ctext_len)
@@ -189,16 +210,19 @@ impl<T: Chacha20Type> KeyAeadInPlace for Chacha20Key<T> {
         let tag_start = buf_len - TagSize::<T>::USIZE;
         let mut tag = GenericArray::default();
         tag.clone_from_slice(&buffer.as_ref()[tag_start..]);
-        let chacha = T::Aead::new(self.0.as_ref());
-        chacha
-            .decrypt_in_place_detached(nonce, aad, &mut buffer.as_mut()[..tag_start], &tag)
-            .map_err(|_| err_msg!(Encryption, "AEAD decryption error"))?;
+        self.0.access_secret_bytes(|key| {
+            let chacha = T::Aead::new(key.into());
+            chacha
+                .decrypt_in_place_detached(nonce, aad, &mut buffer.as_mut()[..tag_start], &tag)
+                .map_err(|_| err_msg!(Encryption, "AEAD decryption error"))?;
+            Ok(())
+        })?;
         buffer.buffer_resize(tag_start)?;
         Ok(())
     }
 
-    fn aead_params(&self) -> KeyAeadParams {
-        KeyAeadParams {
+    fn aead_params(&self) -> AeadParams {
+        AeadParams {
             nonce_length: NonceSize::<T>::USIZE,
             tag_length: TagSize::<T>::USIZE,
         }
@@ -213,35 +237,17 @@ impl<T: Chacha20Type> ToJwk for Chacha20Key<T> {
         if !enc.is_thumbprint() {
             enc.add_str("alg", T::JWK_ALG)?;
         }
-        enc.add_as_base64("k", self.0.as_ref())?;
+        self.0
+            .access_secret_bytes(|key| enc.add_as_base64("k", key))?;
         enc.add_str("kty", JWK_KEY_TYPE)?;
         Ok(())
-    }
-}
-
-// for direct key agreement (not used currently)
-impl<Lhs, Rhs, T> FromKeyExchange<Lhs, Rhs> for Chacha20Key<T>
-where
-    Lhs: KeyExchange<Rhs> + ?Sized,
-    Rhs: ?Sized,
-    T: Chacha20Type,
-{
-    fn from_key_exchange(lhs: &Lhs, rhs: &Rhs) -> Result<Self, Error> {
-        Ok(Self(KeyType::<T>::try_new_with(|arr| {
-            let mut buf = Writer::from_slice(arr);
-            lhs.write_key_exchange(rhs, &mut buf)?;
-            if buf.position() != Self::KEY_LENGTH {
-                return Err(err_msg!(Usage, "Invalid length for key exchange output"));
-            }
-            Ok(())
-        })?))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::buffer::SecretBytes;
+    use crate::buffer::SecretVec;
     use crate::repr::ToSecretBytes;
 
     #[test]
@@ -249,12 +255,14 @@ mod tests {
         fn test_encrypt<T: Chacha20Type>() {
             let input = b"hello";
             let key = Chacha20Key::<T>::random().unwrap();
-            let mut buffer = SecretBytes::from_slice(input);
+            let mut buffer = SecretVec::from_slice(input);
             let nonce = Chacha20Key::<T>::random_nonce();
-            key.encrypt_in_place(&mut buffer, &nonce, &[]).unwrap();
+            key.encrypt_in_place(&mut buffer, nonce.as_ref(), &[])
+                .unwrap();
             assert_eq!(buffer.len(), input.len() + Chacha20Key::<T>::TAG_LENGTH);
             assert_ne!(&buffer[..], input);
-            key.decrypt_in_place(&mut buffer, &nonce, &[]).unwrap();
+            key.decrypt_in_place(&mut buffer, nonce.as_ref(), &[])
+                .unwrap();
             assert_eq!(&buffer[..], input);
         }
         test_encrypt::<C20P>();
