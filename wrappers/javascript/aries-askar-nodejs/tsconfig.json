@@ -1,6 +1,7 @@
 {
   "extends": "../tsconfig.json",
   "compilerOptions": {
-    "types": ["node", "jest"]
+    "skipLibCheck": true,
+    "types": ["node", "vitest/globals"]
   }
 }

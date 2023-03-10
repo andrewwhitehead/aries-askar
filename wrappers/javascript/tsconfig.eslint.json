@@ -8,6 +8,6 @@
       "@hyperledger/aries-askar-nodejs": ["aries-askar-nodejs/src"]
     }
   },
-  "include": [".eslintrc.js", "jest.config.ts"],
+  "include": [".eslintrc.js"],
   "exclude": ["node_modules", "build"]
 }

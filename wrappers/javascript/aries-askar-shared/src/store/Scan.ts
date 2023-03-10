@@ -1,6 +1,6 @@
-import type { EntryListHandle, ScanHandle } from '../crypto'
 import type { Entry, EntryObject } from './Entry'
 import type { Store } from './Store'
+import type { EntryListHandle, ScanHandle } from '../crypto'
 
 import { ariesAskar } from '../ariesAskar'
 import { AriesAskarError } from '../error'

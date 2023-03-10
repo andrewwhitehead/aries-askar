@@ -1,5 +1,5 @@
-import type { KeyAlgs, SigAlgs } from '../enums'
 import type { LocalKeyHandle } from './handles'
+import type { KeyAlgs, SigAlgs } from '../enums'
 
 import { ariesAskar } from '../ariesAskar'
 import { KeyMethod, keyAlgFromString } from '../enums'
