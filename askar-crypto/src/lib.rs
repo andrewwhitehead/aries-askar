@@ -35,6 +35,10 @@ pub mod jwk;
 
 pub mod kdf;
 
+#[cfg(feature = "dhkem")]
+#[cfg_attr(docsrs, doc(cfg(feature = "dhkem")))]
+pub mod kem;
+
 pub mod random;
 
 pub mod sign;
