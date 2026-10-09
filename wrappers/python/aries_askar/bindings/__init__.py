@@ -9,7 +9,7 @@ except ImportError:
     import json
 
 from ctypes import POINTER, byref, c_int8, c_int32, c_int64, c_size_t
-from typing import Optional, Sequence, Union
+from typing import Optional, Sequence, Tuple, Union
 
 from ..types import EntryOperation, KeyAlg, KeyBackend, SeedMethod
 
@@ -1086,6 +1086,73 @@ def key_crypto_box_seal_open(
         byref(buf),
     )
     return buf
+
+
+def key_dhkem_encap(handle: LocalKeyHandle) -> Tuple[ByteBuffer, ByteBuffer]:
+    enc = ByteBuffer()
+    secret = ByteBuffer()
+    invoke(
+        "askar_key_dhkem_encap",
+        (LocalKeyHandle, POINTER(ByteBuffer), POINTER(ByteBuffer)),
+        handle,
+        byref(enc),
+        byref(secret),
+    )
+    return enc, secret
+
+
+def key_dhkem_decap(
+    handle: LocalKeyHandle,
+    enc: Union[bytes, ByteBuffer],
+) -> ByteBuffer:
+    secret = ByteBuffer()
+    invoke(
+        "askar_key_dhkem_decap",
+        (LocalKeyHandle, FfiByteBuffer, POINTER(ByteBuffer)),
+        handle,
+        enc,
+        byref(secret),
+    )
+    return secret
+
+
+def key_dhkem_auth_encap(
+    recip_key: LocalKeyHandle,
+    sender_key: LocalKeyHandle,
+) -> Tuple[ByteBuffer, ByteBuffer]:
+    enc = ByteBuffer()
+    secret = ByteBuffer()
+    invoke(
+        "askar_key_dhkem_auth_encap",
+        (
+            LocalKeyHandle,
+            LocalKeyHandle,
+            POINTER(ByteBuffer),
+            POINTER(ByteBuffer),
+        ),
+        recip_key,
+        sender_key,
+        byref(enc),
+        byref(secret),
+    )
+    return enc, secret
+
+
+def key_dhkem_auth_decap(
+    recip_key: LocalKeyHandle,
+    enc: Union[bytes, ByteBuffer],
+    sender_key: LocalKeyHandle,
+) -> ByteBuffer:
+    secret = ByteBuffer()
+    invoke(
+        "askar_key_dhkem_auth_decap",
+        (LocalKeyHandle, FfiByteBuffer, LocalKeyHandle, POINTER(ByteBuffer)),
+        recip_key,
+        enc,
+        sender_key,
+        byref(secret),
+    )
+    return secret
 
 
 def key_derive_ecdh_es(
