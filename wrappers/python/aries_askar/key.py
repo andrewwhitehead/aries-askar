@@ -1,6 +1,6 @@
 """Handling of Key instances."""
 
-from typing import Union, Optional, Sequence
+from typing import Union, Optional, Sequence, Tuple
 
 from . import bindings
 from .bindings import AeadParams, Encrypted, LocalKeyHandle
@@ -130,6 +130,47 @@ class Key:
         tag: Optional[bytes] = None,
     ) -> "Key":
         return Key(bindings.key_unwrap_key(self._handle, alg, ciphertext, nonce, tag))
+
+    def dhkem_encap(self) -> Tuple[bytes, bytes]:
+        """Encapsulate a new shared secret for this (recipient) public key.
+
+        Performs the `Encap` operation of the Diffie-Hellman KEM defined in
+        RFC 9180, for P-256, P-384 and X25519 keys.
+
+        Returns:
+            A tuple of the encapsulated key (to send to the recipient) and the
+            KEM shared secret
+        """
+        enc, secret = bindings.key_dhkem_encap(self._handle)
+        return bytes(enc), bytes(secret)
+
+    def dhkem_decap(self, enc: bytes) -> bytes:
+        """Recover the KEM shared secret from an encapsulated key.
+
+        Performs the `Decap` operation using this (recipient) secret key.
+        """
+        return bytes(bindings.key_dhkem_decap(self._handle, enc))
+
+    def dhkem_auth_encap(self, sender_key: "Key") -> Tuple[bytes, bytes]:
+        """Encapsulate a new shared secret for this (recipient) public key.
+
+        Performs the `AuthEncap` operation, authenticated by the sender secret key.
+
+        Returns:
+            A tuple of the encapsulated key and the KEM shared secret
+        """
+        enc, secret = bindings.key_dhkem_auth_encap(self._handle, sender_key._handle)
+        return bytes(enc), bytes(secret)
+
+    def dhkem_auth_decap(self, enc: bytes, sender_key: "Key") -> bytes:
+        """Recover the KEM shared secret from an encapsulated key.
+
+        Performs the `AuthDecap` operation using this (recipient) secret key and
+        the sender public key.
+        """
+        return bytes(
+            bindings.key_dhkem_auth_decap(self._handle, enc, sender_key._handle)
+        )
 
     def __repr__(self) -> str:
         return (
