@@ -49,6 +49,11 @@ use crate::{
     repr::{KeyGen, KeyPublicBytes, KeySecretBytes, ToPublicBytes, ToSecretBytes},
     sign::{KeySigVerify, KeySign, SignatureType},
 };
+#[cfg(feature = "dhkem")]
+use crate::{
+    buffer::SecretBytes,
+    kem::{self, DhKem},
+};
 
 #[cfg(any(feature = "k256", feature = "p256", feature = "p384",))]
 use super::EcCurves;
@@ -83,6 +88,96 @@ impl AnyKey {
     #[inline]
     pub fn key_type_id(&self) -> TypeId {
         self.0.as_any().type_id()
+    }
+}
+
+/// Resolve the concrete key type of an `AnyKey` for a DH-based KEM
+#[cfg(feature = "dhkem")]
+macro_rules! with_dhkem_key {
+    ($key:expr, $K:ident => $body:expr) => {
+        match $key.algorithm() {
+            #[cfg(feature = "ed25519")]
+            KeyAlg::X25519 => {
+                type $K = X25519KeyPair;
+                $body
+            }
+            #[cfg(feature = "p256")]
+            KeyAlg::EcCurve(EcCurves::Secp256r1) => {
+                type $K = P256KeyPair;
+                $body
+            }
+            #[cfg(feature = "p384")]
+            KeyAlg::EcCurve(EcCurves::Secp384r1) => {
+                type $K = P384KeyPair;
+                $body
+            }
+            #[allow(unreachable_patterns)]
+            _ => Err(err_msg!(
+                Unsupported,
+                "Unsupported key algorithm for DH-based KEM"
+            )),
+        }
+    };
+}
+
+/// Diffie-Hellman based key encapsulation (RFC 9180 DHKEM) for type-erased keys
+#[cfg(feature = "dhkem")]
+#[cfg_attr(docsrs, doc(cfg(feature = "dhkem")))]
+impl AnyKey {
+    /// Determine the DH-based KEM algorithm which applies to this key, if any
+    pub fn dhkem_algorithm(&self) -> Option<DhKem> {
+        match self.algorithm() {
+            #[cfg(feature = "ed25519")]
+            KeyAlg::X25519 => Some(DhKem::X25519HkdfSha256),
+            #[cfg(feature = "p256")]
+            KeyAlg::EcCurve(EcCurves::Secp256r1) => Some(DhKem::P256HkdfSha256),
+            #[cfg(feature = "p384")]
+            KeyAlg::EcCurve(EcCurves::Secp384r1) => Some(DhKem::P384HkdfSha384),
+            _ => None,
+        }
+    }
+
+    fn check_dhkem_pair(&self, other: &AnyKey) -> Result<(), Error> {
+        if self.key_type_id() != other.key_type_id() {
+            return Err(err_msg!(
+                Unsupported,
+                "Key algorithms must match for DH-based KEM"
+            ));
+        }
+        Ok(())
+    }
+
+    /// Encapsulate a new shared secret for this (recipient) public key (`Encap`)
+    #[cfg(feature = "getrandom")]
+    pub fn dhkem_encap(&self) -> Result<kem::Encapsulated, Error> {
+        with_dhkem_key!(self, K => kem::encap(self.assume::<K>()))
+    }
+
+    /// Recover the shared secret from an encapsulated key using this
+    /// (recipient) secret key (`Decap`)
+    pub fn dhkem_decap(&self, enc: &[u8]) -> Result<SecretBytes, Error> {
+        with_dhkem_key!(self, K => kem::decap(enc, self.assume::<K>()))
+    }
+
+    /// Encapsulate a new shared secret for this (recipient) public key,
+    /// authenticated by the sender secret key (`AuthEncap`)
+    #[cfg(feature = "getrandom")]
+    pub fn dhkem_auth_encap(&self, sender_sk: &AnyKey) -> Result<kem::Encapsulated, Error> {
+        self.check_dhkem_pair(sender_sk)?;
+        with_dhkem_key!(
+            self,
+            K => kem::auth_encap(self.assume::<K>(), sender_sk.assume::<K>())
+        )
+    }
+
+    /// Recover the shared secret from an encapsulated key using this
+    /// (recipient) secret key and the sender public key (`AuthDecap`)
+    pub fn dhkem_auth_decap(&self, enc: &[u8], sender_pk: &AnyKey) -> Result<SecretBytes, Error> {
+        self.check_dhkem_pair(sender_pk)?;
+        with_dhkem_key!(
+            self,
+            K => kem::auth_decap(enc, self.assume::<K>(), sender_pk.assume::<K>())
+        )
     }
 }
 
@@ -877,6 +972,60 @@ mod tests {
     use super::*;
 
     // FIXME - add a custom key type for testing, to allow feature independence
+
+    #[cfg(all(feature = "dhkem", feature = "getrandom"))]
+    #[test]
+    fn dhkem_any() {
+        use crate::repr::ToPublicBytes;
+
+        let mut algs = alloc::vec![];
+        #[cfg(feature = "ed25519")]
+        algs.push((KeyAlg::X25519, DhKem::X25519HkdfSha256));
+        #[cfg(feature = "p256")]
+        algs.push((KeyAlg::EcCurve(EcCurves::Secp256r1), DhKem::P256HkdfSha256));
+        #[cfg(feature = "p384")]
+        algs.push((KeyAlg::EcCurve(EcCurves::Secp384r1), DhKem::P384HkdfSha384));
+
+        for (alg, kem_alg) in algs {
+            let recip = Box::<AnyKey>::random(alg).unwrap();
+            assert_eq!(recip.dhkem_algorithm(), Some(kem_alg));
+            // only the public key is needed to encapsulate
+            let recip_pk =
+                Box::<AnyKey>::from_public_bytes(alg, recip.to_public_bytes().unwrap().as_ref())
+                    .unwrap();
+            let res = recip_pk.dhkem_encap().unwrap();
+            assert_eq!(res.enc.len(), kem_alg.enc_length());
+            assert_eq!(res.shared_secret.len(), kem_alg.secret_length());
+            assert_eq!(recip.dhkem_decap(&res.enc).unwrap(), res.shared_secret);
+            // a public key cannot decapsulate
+            assert!(recip_pk.dhkem_decap(&res.enc).is_err());
+
+            let sender = Box::<AnyKey>::random(alg).unwrap();
+            let sender_pk =
+                Box::<AnyKey>::from_public_bytes(alg, sender.to_public_bytes().unwrap().as_ref())
+                    .unwrap();
+            let res = recip_pk.dhkem_auth_encap(&sender).unwrap();
+            assert_eq!(
+                recip.dhkem_auth_decap(&res.enc, &sender_pk).unwrap(),
+                res.shared_secret
+            );
+            // a public key cannot authenticate the encapsulation
+            assert!(recip_pk.dhkem_auth_encap(&sender_pk).is_err());
+            // the sender key must be the same type of key
+            let mismatch = Box::<AnyKey>::random(KeyAlg::Ed25519).unwrap();
+            assert!(recip_pk.dhkem_auth_encap(&mismatch).is_err());
+            assert!(recip.dhkem_auth_decap(&res.enc, &mismatch).is_err());
+        }
+    }
+
+    #[cfg(all(feature = "dhkem", feature = "getrandom", feature = "ed25519"))]
+    #[test]
+    fn dhkem_any_unsupported() {
+        let key = Box::<AnyKey>::random(KeyAlg::Ed25519).unwrap();
+        assert_eq!(key.dhkem_algorithm(), None);
+        assert!(key.dhkem_encap().is_err());
+        assert!(key.dhkem_decap(&[0u8; 32]).is_err());
+    }
 
     #[cfg(feature = "ed25519")]
     #[test]

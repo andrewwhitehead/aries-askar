@@ -20,6 +20,8 @@ use p384::{
 use subtle::ConstantTimeEq;
 
 use super::{ec_common, EcCurves, HasKeyAlg, HasKeyBackend, KeyAlg};
+#[cfg(feature = "dhkem")]
+use crate::kem::{DhKem, DhKemKey};
 use crate::{
     array::typenum::{U48, U49, U97},
     buffer::{ArrayKey, WriteBuffer},
@@ -354,6 +356,24 @@ impl KeyExchange for P384KeyPair {
             }
             None => Err(err_msg!(MissingSecretKey)),
         }
+    }
+}
+
+#[cfg(feature = "dhkem")]
+impl DhKemKey for P384KeyPair {
+    const KEM: DhKem = DhKem::P384HkdfSha384;
+
+    fn write_kem_public(&self, out: &mut dyn WriteBuffer) -> Result<(), Error> {
+        // SerializePublicKey: the uncompressed point encoding
+        out.buffer_write(self.public.to_sec1_point(false).as_bytes())
+    }
+
+    fn from_kem_public(bytes: &[u8]) -> Result<Self, Error> {
+        // DeserializePublicKey: only the uncompressed encoding is accepted
+        if bytes.first() != Some(&0x04) {
+            return Err(err_msg!(InvalidKeyData, "Expected uncompressed public key"));
+        }
+        Self::from_public_bytes(bytes)
     }
 }
 

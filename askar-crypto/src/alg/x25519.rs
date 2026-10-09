@@ -10,6 +10,8 @@ use x25519_dalek::{PublicKey, StaticSecret as SecretKey};
 use zeroize::Zeroizing;
 
 use super::{ed25519::Ed25519KeyPair, HasKeyAlg, HasKeyBackend, KeyAlg};
+#[cfg(feature = "dhkem")]
+use crate::kem::{DhKem, DhKemKey};
 use crate::{
     array::typenum::{U32, U64},
     buffer::{ArrayKey, WriteBuffer},
@@ -219,6 +221,19 @@ impl KeyExchange for X25519KeyPair {
             }
             None => Err(err_msg!(MissingSecretKey)),
         }
+    }
+}
+
+#[cfg(feature = "dhkem")]
+impl DhKemKey for X25519KeyPair {
+    const KEM: DhKem = DhKem::X25519HkdfSha256;
+
+    fn write_kem_public(&self, out: &mut dyn WriteBuffer) -> Result<(), Error> {
+        out.buffer_write(self.public.as_bytes())
+    }
+
+    fn from_kem_public(bytes: &[u8]) -> Result<Self, Error> {
+        Self::from_public_bytes(bytes)
     }
 }
 
