@@ -64,9 +64,18 @@ const FETCH_QUERY_UPDATE: &str = "SELECT id, value,
     FROM items i
     WHERE profile_id = $1 AND kind = $2 AND category = $3 AND name = $4
     AND (expiry IS NULL OR expiry > CURRENT_TIMESTAMP) FOR NO KEY UPDATE";
+// The conflict target is specified so that only a duplicate of the entry key is
+// treated as a duplicate. Other unique violations (such as the 'id' column) are
+// reported as errors.
 const INSERT_QUERY: &str = "INSERT INTO items (profile_id, kind, category, name, value, expiry)
     VALUES ($1, $2, $3, $4, $5, $6)
-    ON CONFLICT DO NOTHING RETURNING id";
+    ON CONFLICT (profile_id, kind, category, name) DO NOTHING RETURNING id";
+// An expired entry still occupies its key, and is replaced by a new entry. A row which
+// has not expired does not match, and so is not locked.
+const REPLACE_EXPIRED_QUERY: &str = "UPDATE items SET value=$5, expiry=$6
+    WHERE profile_id=$1 AND kind=$2 AND category=$3 AND name=$4
+    AND expiry IS NOT NULL AND expiry <= CURRENT_TIMESTAMP
+    RETURNING id";
 const UPDATE_QUERY: &str = "UPDATE items SET value=$5, expiry=$6
     WHERE profile_id=$1 AND kind=$2 AND category=$3 AND name=$4
     RETURNING id";
@@ -568,7 +577,7 @@ impl BackendSession for DbSession<Postgres> {
                     .await?;
                     let mut active = acquire_session(&mut *self).await?;
                     let mut txn = active.as_transaction().await?;
-                    perform_insert(
+                    let result = perform_insert(
                         &mut txn,
                         kind,
                         &enc_category,
@@ -578,9 +587,15 @@ impl BackendSession for DbSession<Postgres> {
                         expiry_ms,
                         op == EntryOperation::Insert,
                     )
-                    .await?;
-                    txn.commit().await?;
-                    Ok(())
+                    .await;
+                    match result {
+                        Ok(()) => txn.commit().await,
+                        Err(err) => {
+                            // roll back immediately instead of when the connection is next used
+                            txn.rollback().await;
+                            Err(err)
+                        }
+                    }
                 })
             }
 
@@ -715,16 +730,40 @@ async fn perform_insert(
 ) -> Result<(), Error> {
     let row_id = if new_row {
         trace!("Insert entry");
-        sqlx::query_scalar(INSERT_QUERY)
+        let expiry = expiry_ms.map(expiry_timestamp).transpose()?;
+        let inserted: Option<i64> = sqlx::query_scalar(INSERT_QUERY)
             .bind(active.profile_id)
             .bind(kind as i16)
             .bind(enc_category)
             .bind(enc_name)
             .bind(enc_value)
-            .bind(expiry_ms.map(expiry_timestamp).transpose()?)
+            .bind(expiry)
             .fetch_optional(active.connection_mut())
-            .await?
-            .ok_or_else(|| err_msg!(Duplicate, "Duplicate entry"))?
+            .await
+            .map_err(insert_error("Error inserting new entry"))?;
+        if let Some(row_id) = inserted {
+            row_id
+        } else {
+            // An entry with the same key exists. This is only allowed if it has expired
+            trace!("Replace expired entry");
+            let row_id: i64 = sqlx::query_scalar(REPLACE_EXPIRED_QUERY)
+                .bind(active.profile_id)
+                .bind(kind as i16)
+                .bind(enc_category)
+                .bind(enc_name)
+                .bind(enc_value)
+                .bind(expiry)
+                .fetch_optional(active.connection_mut())
+                .await
+                .map_err(err_map!(Backend, "Error replacing expired entry"))?
+                .ok_or_else(|| err_msg!(Duplicate, "Duplicate entry"))?;
+            sqlx::query(TAG_DELETE_QUERY)
+                .bind(row_id)
+                .execute(active.connection_mut())
+                .await
+                .map_err(err_map!(Backend, "Error removing expired entry tags"))?;
+            row_id
+        }
     } else {
         trace!("Update entry");
         let row_id: i64 = sqlx::query_scalar(UPDATE_QUERY)
@@ -753,10 +792,33 @@ async fn perform_insert(
                 .bind(tag.plaintext as i16)
                 .execute(active.connection_mut())
                 .await
-                .map_err(err_map!(Backend, "Error inserting entry tags"))?;
+                .map_err(insert_error("Error inserting entry tags"))?;
         }
     }
     Ok(())
+}
+
+/// Convert an error from an insert query. A violation of a primary key constraint
+/// means that the next value of the `id` sequence is already in use, which can be
+/// the result of the sequence not being updated after rows were copied or restored.
+fn insert_error(msg: &'static str) -> impl FnOnce(sqlx::Error) -> Error {
+    move |err| {
+        let pkey_table = err
+            .as_database_error()
+            .filter(|e| e.is_unique_violation())
+            .and_then(|e| e.constraint())
+            .and_then(|c| c.strip_suffix("_pkey"))
+            .map(str::to_owned);
+        if let Some(table) = pkey_table {
+            err_msg!(
+                Backend,
+                "{msg}: id already exists (the '{table}_id_seq' sequence may be behind)"
+            )
+            .with_cause(err)
+        } else {
+            err_msg!(Backend, "{msg}").with_cause(err)
+        }
+    }
 }
 
 async fn perform_remove(

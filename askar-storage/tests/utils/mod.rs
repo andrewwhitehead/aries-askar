@@ -131,6 +131,110 @@ pub async fn db_insert_duplicate(db: AnyBackend) {
     assert_eq!(err.kind(), ErrorKind::Duplicate);
 }
 
+pub async fn db_insert_expired(db: AnyBackend) {
+    let old_row = Entry::new(
+        EntryKind::Item,
+        "category",
+        "name",
+        "old value",
+        vec![
+            EntryTag::Encrypted("t1".to_string(), "v1".to_string()),
+            EntryTag::Plaintext("t2".to_string(), "v2".to_string()),
+        ],
+    );
+    let new_row = Entry::new(
+        EntryKind::Item,
+        "category",
+        "name",
+        "new value",
+        vec![EntryTag::Encrypted("t3".to_string(), "v3".to_string())],
+    );
+
+    let mut conn = db.session(None, false).expect(ERR_SESSION);
+
+    // insert an entry which has already expired
+    conn.update(
+        EntryKind::Item,
+        EntryOperation::Insert,
+        &old_row.category,
+        &old_row.name,
+        Some(&old_row.value),
+        Some(old_row.tags.as_slice()),
+        Some(-1000),
+    )
+    .await
+    .expect(ERR_INSERT);
+    let found = conn
+        .fetch(EntryKind::Item, &old_row.category, &old_row.name, false)
+        .await
+        .expect(ERR_FETCH);
+    assert!(found.is_none(), "Expired entry must not be found");
+
+    // an entry with the same category and name can be inserted
+    conn.update(
+        EntryKind::Item,
+        EntryOperation::Insert,
+        &new_row.category,
+        &new_row.name,
+        Some(&new_row.value),
+        Some(new_row.tags.as_slice()),
+        None,
+    )
+    .await
+    .expect("Error inserting over an expired entry");
+    let found = conn
+        .fetch(EntryKind::Item, &new_row.category, &new_row.name, false)
+        .await
+        .expect(ERR_FETCH)
+        .expect(ERR_REQ_ROW);
+    assert_eq!(found, new_row);
+
+    // the tags of the expired entry are not retained
+    for filter in [TagFilter::is_eq("t1", "v1"), TagFilter::is_eq("~t2", "v2")] {
+        let rows = conn
+            .fetch_all(
+                Some(EntryKind::Item),
+                Some(&new_row.category),
+                Some(filter),
+                None,
+                None,
+                false,
+                false,
+            )
+            .await
+            .expect(ERR_FETCH_ALL);
+        assert_eq!(rows.len(), 0);
+    }
+    let rows = conn
+        .fetch_all(
+            Some(EntryKind::Item),
+            Some(&new_row.category),
+            Some(TagFilter::is_eq("t3", "v3")),
+            None,
+            None,
+            false,
+            false,
+        )
+        .await
+        .expect(ERR_FETCH_ALL);
+    assert_eq!(rows.len(), 1);
+
+    // the new entry is not expired, so inserting again is a duplicate
+    let err = conn
+        .update(
+            EntryKind::Item,
+            EntryOperation::Insert,
+            &new_row.category,
+            &new_row.name,
+            Some(&new_row.value),
+            Some(new_row.tags.as_slice()),
+            None,
+        )
+        .await
+        .expect_err(ERR_REQ_ERR);
+    assert_eq!(err.kind(), ErrorKind::Duplicate);
+}
+
 pub async fn db_insert_remove(db: AnyBackend) {
     let test_row = Entry::new(EntryKind::Item, "category", "name", "value", Vec::new());
 

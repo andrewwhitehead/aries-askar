@@ -50,9 +50,16 @@ const FETCH_QUERY: &str = "SELECT i.id, i.value,
     FROM items i WHERE i.profile_id = ?1 AND i.kind = ?2
     AND i.category = ?3 AND i.name = ?4
     AND (i.expiry IS NULL OR DATETIME(i.expiry) > DATETIME('now'))";
-const INSERT_QUERY: &str =
-    "INSERT OR IGNORE INTO items (profile_id, kind, category, name, value, expiry)
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6)";
+// The conflict target is specified so that only a duplicate of the entry key is
+// treated as a duplicate
+const INSERT_QUERY: &str = "INSERT INTO items (profile_id, kind, category, name, value, expiry)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+    ON CONFLICT (profile_id, kind, category, name) DO NOTHING";
+// An expired entry still occupies its key, and is replaced by a new entry
+const REPLACE_EXPIRED_QUERY: &str = "UPDATE items SET value=?5, expiry=?6
+    WHERE profile_id=?1 AND kind=?2 AND category=?3 AND name=?4
+    AND expiry IS NOT NULL AND DATETIME(expiry) <= DATETIME('now')
+    RETURNING id";
 const UPDATE_QUERY: &str = "UPDATE items SET value=?5, expiry=?6 WHERE profile_id=?1 AND kind=?2
     AND category=?3 AND name=?4 RETURNING id";
 const SCAN_QUERY: &str = "SELECT i.id, i.kind, i.category, i.name, i.value,
@@ -541,7 +548,7 @@ impl BackendSession for DbSession<Sqlite> {
                     .await?;
                     let mut active = acquire_session(&mut *self).await?;
                     let mut txn = active.as_transaction().await?;
-                    perform_insert(
+                    let result = perform_insert(
                         &mut txn,
                         kind,
                         &enc_category,
@@ -551,9 +558,15 @@ impl BackendSession for DbSession<Sqlite> {
                         expiry_ms,
                         op == EntryOperation::Insert,
                     )
-                    .await?;
-                    txn.commit().await?;
-                    Ok(())
+                    .await;
+                    match result {
+                        Ok(()) => txn.commit().await,
+                        Err(err) => {
+                            // roll back immediately instead of when the connection is next used
+                            txn.rollback().await;
+                            Err(err)
+                        }
+                    }
                 })
             }
 
@@ -663,20 +676,40 @@ async fn perform_insert(
 ) -> Result<(), Error> {
     let row_id = if new_row {
         trace!("Insert entry");
+        let expiry = expiry_ms.map(expiry_timestamp).transpose()?;
         let done = sqlx::query(INSERT_QUERY)
             .bind(active.profile_id)
             .bind(kind as i16)
             .bind(enc_category)
             .bind(enc_name)
             .bind(enc_value)
-            .bind(expiry_ms.map(expiry_timestamp).transpose()?)
+            .bind(expiry)
             .execute(active.connection_mut())
             .await
             .map_err(err_map!(Backend, "Error inserting new entry"))?;
-        if done.rows_affected() == 0 {
-            return Err(err_msg!(Duplicate, "Duplicate entry"));
+        if done.rows_affected() > 0 {
+            done.last_insert_rowid()
+        } else {
+            // An entry with the same key exists. This is only allowed if it has expired
+            trace!("Replace expired entry");
+            let row_id: i64 = sqlx::query_scalar(REPLACE_EXPIRED_QUERY)
+                .bind(active.profile_id)
+                .bind(kind as i16)
+                .bind(enc_category)
+                .bind(enc_name)
+                .bind(enc_value)
+                .bind(expiry)
+                .fetch_optional(active.connection_mut())
+                .await
+                .map_err(err_map!(Backend, "Error replacing expired entry"))?
+                .ok_or_else(|| err_msg!(Duplicate, "Duplicate entry"))?;
+            sqlx::query(TAG_DELETE_QUERY)
+                .bind(row_id)
+                .execute(active.connection_mut())
+                .await
+                .map_err(err_map!(Backend, "Error removing expired entry tags"))?;
+            row_id
         }
-        done.last_insert_rowid()
     } else {
         trace!("Update entry");
         let row_id: i64 = sqlx::query_scalar(UPDATE_QUERY)

@@ -34,6 +34,11 @@ macro_rules! backend_tests {
         }
 
         #[test]
+        fn insert_expired() {
+            $run(super::utils::db_insert_expired)
+        }
+
+        #[test]
         fn insert_fetch() {
             $run(super::utils::db_insert_fetch)
         }
@@ -374,4 +379,192 @@ mod postgres {
     }
 
     backend_tests!(with_postgres);
+
+    #[test]
+    // The id sequences can be behind the highest id after rows have been copied or
+    // restored. This must not be reported as a duplicate entry.
+    fn insert_id_sequence_behind() {
+        use askar_storage::{
+            entry::{EntryKind, EntryOperation},
+            Backend, BackendSession, Error, ErrorKind,
+        };
+        use sqlx::Connection;
+
+        let db_url = std::env::var("POSTGRES_URL").expect("'POSTGRES_URL' must be defined");
+        with_postgres(|db| async move {
+            async fn insert(db: &AnyBackend, name: &str) -> Result<(), Error> {
+                let mut conn = db.session(None, false).expect("Error starting session");
+                conn.update(
+                    EntryKind::Item,
+                    EntryOperation::Insert,
+                    "category",
+                    name,
+                    Some(b"value"),
+                    Some(&[]),
+                    None,
+                )
+                .await
+            }
+
+            for name in ["a", "b", "c"] {
+                insert(&db, name).await.expect("Error inserting test row");
+            }
+
+            // make the next sequence value unavailable
+            let mut pg = sqlx::PgConnection::connect(&db_url)
+                .await
+                .expect("Error connecting to postgres");
+            sqlx::query("SELECT setval('items_id_seq', (SELECT MIN(id) FROM items))")
+                .execute(&mut pg)
+                .await
+                .expect("Error updating sequence");
+
+            // an entry with a new name is not a duplicate, and the error explains the problem
+            let err = insert(&db, "d").await.expect_err("Expected insert error");
+            assert_eq!(err.kind(), ErrorKind::Backend);
+            let msg = err.to_string();
+            assert!(msg.contains("items_id_seq"), "Unexpected error: {msg}");
+
+            // an actual duplicate is still reported as such
+            let err = insert(&db, "a").await.expect_err("Expected insert error");
+            assert_eq!(err.kind(), ErrorKind::Duplicate);
+
+            // after updating the sequence, entries can be inserted
+            sqlx::query("SELECT setval('items_id_seq', (SELECT MAX(id) FROM items))")
+                .execute(&mut pg)
+                .await
+                .expect("Error updating sequence");
+            insert(&db, "d").await.expect("Error inserting test row");
+            let err = insert(&db, "d").await.expect_err("Expected insert error");
+            assert_eq!(err.kind(), ErrorKind::Duplicate);
+        });
+    }
+
+    #[test]
+    // A failed update must not leave a transaction open on the connection while the
+    // session is idle, as the transaction would hold locks and a snapshot, and could
+    // be terminated by the server.
+    fn failed_insert_ends_transaction() {
+        use askar_storage::{
+            entry::{EntryKind, EntryOperation},
+            Backend, BackendSession, ErrorKind,
+        };
+        use sqlx::Connection;
+
+        let db_url = std::env::var("POSTGRES_URL").expect("'POSTGRES_URL' must be defined");
+        with_postgres(|db| async move {
+            let mut pg = sqlx::PgConnection::connect(&db_url)
+                .await
+                .expect("Error connecting to postgres");
+            // the test database holds a transaction with an advisory lock while it is open
+            async fn open_transactions(pg: &mut sqlx::PgConnection) -> i64 {
+                sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM pg_stat_activity WHERE datname = current_database()
+                    AND pid <> pg_backend_pid() AND state = 'idle in transaction'
+                    AND query NOT LIKE '%pg_try_advisory_xact_lock%'",
+                )
+                .fetch_one(pg)
+                .await
+                .expect("Error querying activity")
+            }
+
+            // the session is kept open while the connection is checked
+            let mut sess = db.session(None, false).expect("Error starting session");
+            sess.update(
+                EntryKind::Item,
+                EntryOperation::Insert,
+                "category",
+                "name",
+                Some(b"value"),
+                None,
+                None,
+            )
+            .await
+            .expect("Error inserting test row");
+            assert_eq!(open_transactions(&mut pg).await, 0);
+
+            let err = sess
+                .update(
+                    EntryKind::Item,
+                    EntryOperation::Insert,
+                    "category",
+                    "name",
+                    Some(b"value"),
+                    None,
+                    None,
+                )
+                .await
+                .expect_err("Expected duplicate error");
+            assert_eq!(err.kind(), ErrorKind::Duplicate);
+            assert_eq!(open_transactions(&mut pg).await, 0);
+
+            let err = sess
+                .update(
+                    EntryKind::Item,
+                    EntryOperation::Replace,
+                    "category",
+                    "missing",
+                    Some(b"value"),
+                    None,
+                    None,
+                )
+                .await
+                .expect_err("Expected not found error");
+            assert_eq!(err.kind(), ErrorKind::NotFound);
+            assert_eq!(open_transactions(&mut pg).await, 0);
+        });
+    }
+
+    #[test]
+    // Inserting a duplicate entry must not lock the existing entry, which would block
+    // other sessions from updating it until the transaction completes.
+    fn insert_duplicate_does_not_lock_entry() {
+        use askar_storage::{
+            entry::{EntryKind, EntryOperation},
+            Backend, BackendSession, ErrorKind,
+        };
+        use sqlx::Connection;
+
+        let db_url = std::env::var("POSTGRES_URL").expect("'POSTGRES_URL' must be defined");
+        with_postgres(|db| async move {
+            let mut sess = db.session(None, false).expect("Error starting session");
+            sess.update(
+                EntryKind::Item,
+                EntryOperation::Insert,
+                "category",
+                "name",
+                Some(b"value"),
+                None,
+                None,
+            )
+            .await
+            .expect("Error inserting test row");
+            drop(sess);
+
+            // attempt a duplicate insert in a transaction, which remains open
+            let mut txn = db.session(None, true).expect("Error starting transaction");
+            let err = txn
+                .update(
+                    EntryKind::Item,
+                    EntryOperation::Insert,
+                    "category",
+                    "name",
+                    Some(b"value"),
+                    None,
+                    None,
+                )
+                .await
+                .expect_err("Expected duplicate error");
+            assert_eq!(err.kind(), ErrorKind::Duplicate);
+
+            let mut pg = sqlx::PgConnection::connect(&db_url)
+                .await
+                .expect("Error connecting to postgres");
+            sqlx::query("SELECT id FROM items FOR UPDATE NOWAIT")
+                .fetch_all(&mut pg)
+                .await
+                .expect("Entry was locked by the duplicate insert");
+            txn.close(false).await.expect("Error rolling back");
+        });
+    }
 }

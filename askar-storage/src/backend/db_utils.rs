@@ -348,6 +348,22 @@ impl<DB: ExtDatabase> DbSessionTxn<'_, DB> {
         }
         Ok(())
     }
+
+    /// Roll back the transaction immediately. Dropping the transaction instead only queues
+    /// the roll-back, which is sent when the connection is next used (or released),
+    /// and until then the transaction remains open on the server holding any locks.
+    /// A failure to roll back is logged, as this is called when handling another error.
+    pub async fn rollback(mut self) {
+        if self.rollback {
+            self.rollback = false;
+            self.inner.txn_depth -= 1;
+            let conn = self.connection_mut();
+            debug!("Roll-back transaction");
+            if let Err(err) = DB::TransactionManager::rollback(conn).await {
+                warn!("Error rolling back transaction: {}", err);
+            }
+        }
+    }
 }
 
 impl<DB: ExtDatabase> Drop for DbSessionTxn<'_, DB> {
