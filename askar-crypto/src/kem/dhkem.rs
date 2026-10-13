@@ -8,6 +8,7 @@
 //! [RFC 9180 section 4.1]: https://www.rfc-editor.org/rfc/rfc9180.html#name-dh-based-kem-dhkem
 
 use alloc::vec::Vec;
+use core::str::FromStr;
 
 use hkdf::hmac::EagerHash;
 use hkdf::Hkdf;
@@ -15,11 +16,13 @@ use sha2::{Sha256, Sha384};
 use subtle::ConstantTimeEq;
 
 use crate::{
+    alg::normalize_alg,
     buffer::{SecretBytes, WriteBuffer},
     error::Error,
     kdf::KeyExchange,
+    kem::Encapsulated,
     random::KeyMaterial,
-    repr::KeyGen,
+    repr::{KeyGen, KeySecretBytes},
 };
 
 const HPKE_VERSION: &[u8] = b"HPKE-v1";
@@ -35,7 +38,29 @@ pub enum DhKem {
     X25519HkdfSha256,
 }
 
+impl FromStr for DhKem {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match normalize_alg(s)? {
+            a if a == "dhkemp256hkdfsha256" => Ok(Self::P256HkdfSha256),
+            a if a == "dhkemp384hkdfsha384" => Ok(Self::P384HkdfSha384),
+            a if a == "dhkemx25519hkdfsha256" => Ok(Self::X25519HkdfSha256),
+            _ => Err(err_msg!(Unsupported, "Unknown KEM algorithm")),
+        }
+    }
+}
+
 impl DhKem {
+    /// The canonical name of this KEM
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::P256HkdfSha256 => "DHKEM-P256-HKDF-SHA256",
+            Self::P384HkdfSha384 => "DHKEM-P384-HKDF-SHA384",
+            Self::X25519HkdfSha256 => "DHKEM-X25519-HKDF-SHA256",
+        }
+    }
+
     /// The KEM identifier registered for HPKE
     pub const fn kem_id(&self) -> u16 {
         match self {
@@ -47,6 +72,14 @@ impl DhKem {
 
     /// The length in bytes of the shared secret produced by this KEM (`Nsecret`)
     pub const fn secret_length(&self) -> usize {
+        match self {
+            Self::P256HkdfSha256 | Self::X25519HkdfSha256 => 32,
+            Self::P384HkdfSha384 => 48,
+        }
+    }
+
+    /// The length in bytes of a secret key (`Nsk`)
+    pub const fn secret_key_length(&self) -> usize {
         match self {
             Self::P256HkdfSha256 | Self::X25519HkdfSha256 => 32,
             Self::P384HkdfSha384 => 48,
@@ -69,7 +102,7 @@ impl DhKem {
 }
 
 /// Trait implemented by key types which can be used with a DH-based KEM
-pub trait DhKemKey: KeyExchange + KeyGen + Sized {
+pub trait DhKemKey: KeyExchange + KeyGen + KeySecretBytes + Sized {
     /// The KEM algorithm associated with this key type
     const KEM: DhKem;
 
@@ -80,15 +113,6 @@ pub trait DhKemKey: KeyExchange + KeyGen + Sized {
 
     /// Load a public key from the form defined by `DeserializePublicKey`
     fn from_kem_public(bytes: &[u8]) -> Result<Self, Error>;
-}
-
-/// The result of encapsulation
-#[derive(Debug)]
-pub struct Encapsulated {
-    /// The encapsulated key (`enc`), to be sent to the recipient
-    pub enc: Vec<u8>,
-    /// The KEM shared secret
-    pub shared_secret: SecretBytes,
 }
 
 fn serialize_public<K: DhKemKey>(key: &K) -> Result<Vec<u8>, Error> {
@@ -178,6 +202,38 @@ fn extract_and_expand(kem: DhKem, dh: &[u8], kem_context: &[u8]) -> Result<Secre
     }
 }
 
+fn derive_key_pair_hash<K: DhKemKey, H: EagerHash>(ikm: &[u8]) -> Result<K, Error> {
+    let kem = K::KEM;
+    let suite_id = kem.suite_id();
+    let dkp_prk = labeled_extract::<H>(&suite_id, b"dkp_prk", ikm)?;
+    let nsk = kem.secret_key_length();
+    match kem {
+        DhKem::X25519HkdfSha256 => {
+            let sk = labeled_expand(&dkp_prk, &suite_id, b"sk", &[], nsk)?;
+            K::from_secret_bytes(sk.as_ref())
+        }
+        DhKem::P256HkdfSha256 | DhKem::P384HkdfSha384 => {
+            // rejection sampling, the bitmask is 0xff for both curves
+            for counter in 0u8..=255 {
+                let candidate = labeled_expand(&dkp_prk, &suite_id, b"candidate", &[counter], nsk)?;
+                if let Ok(key) = K::from_secret_bytes(candidate.as_ref()) {
+                    return Ok(key);
+                }
+            }
+            Err(err_msg!(Unexpected, "Error deriving key pair"))
+        }
+    }
+}
+
+/// `DeriveKeyPair` from RFC 9180 section 7.1.3: derive a key pair
+/// deterministically from input keying material
+pub fn derive_key_pair<K: DhKemKey>(ikm: &[u8]) -> Result<K, Error> {
+    match K::KEM {
+        DhKem::P256HkdfSha256 | DhKem::X25519HkdfSha256 => derive_key_pair_hash::<K, Sha256>(ikm),
+        DhKem::P384HkdfSha384 => derive_key_pair_hash::<K, Sha384>(ikm),
+    }
+}
+
 fn encap_inner<K: DhKemKey>(
     recip_pk: &K,
     ephem_sk: &K,
@@ -228,6 +284,15 @@ pub fn encap<K: DhKemKey>(recip_pk: &K) -> Result<Encapsulated, Error> {
     encap_with_rng(recip_pk, crate::random::default_rng())
 }
 
+/// Encapsulate a new shared secret for the recipient public key (`Encap`),
+/// deriving the ephemeral key pair from `ikm` with `DeriveKeyPair`. This is
+/// deterministic: reusing `ikm` reuses the ephemeral key, so it is intended for
+/// testing against known answer vectors only.
+pub fn encap_with_seed<K: DhKemKey>(recip_pk: &K, ikm: &[u8]) -> Result<Encapsulated, Error> {
+    let ephem_sk = derive_key_pair::<K>(ikm)?;
+    encap_inner(recip_pk, &ephem_sk, None)
+}
+
 /// Recover the shared secret from an encapsulated key using the recipient
 /// secret key (`Decap`)
 pub fn decap<K: DhKemKey>(enc: &[u8], recip_sk: &K) -> Result<SecretBytes, Error> {
@@ -254,6 +319,19 @@ pub fn auth_encap<K: DhKemKey>(recip_pk: &K, sender_sk: &K) -> Result<Encapsulat
     auth_encap_with_rng(recip_pk, sender_sk, crate::random::default_rng())
 }
 
+/// Encapsulate a new shared secret for the recipient public key, authenticated
+/// by the sender secret key (`AuthEncap`), deriving the ephemeral key pair from
+/// `ikm` with `DeriveKeyPair`. This is deterministic and intended for testing
+/// against known answer vectors only.
+pub fn auth_encap_with_seed<K: DhKemKey>(
+    recip_pk: &K,
+    sender_sk: &K,
+    ikm: &[u8],
+) -> Result<Encapsulated, Error> {
+    let ephem_sk = derive_key_pair::<K>(ikm)?;
+    encap_inner(recip_pk, &ephem_sk, Some(sender_sk))
+}
+
 /// Recover the shared secret from an encapsulated key using the recipient
 /// secret key and sender public key (`AuthDecap`)
 pub fn auth_decap<K: DhKemKey>(
@@ -269,6 +347,7 @@ mod tests {
     use super::*;
     use crate::repr::KeySecretBytes;
 
+    #[allow(dead_code)]
     struct Vector {
         sk_r: &'static [u8],
         pk_r: &'static [u8],
@@ -280,6 +359,7 @@ mod tests {
         auth: Option<&'static [u8]>,
     }
 
+    #[allow(dead_code)]
     fn check_vector<K: DhKemKey + KeySecretBytes>(v: &Vector) {
         let sk_r = K::from_secret_bytes(v.sk_r).unwrap();
         let pk_r = K::from_kem_public(v.pk_r).unwrap();
@@ -308,6 +388,7 @@ mod tests {
         }
     }
 
+    #[allow(dead_code)]
     fn check_round_trip<K: DhKemKey>() {
         let sk_r = K::random().unwrap();
         let pk_r = K::from_kem_public(&serialize_public(&sk_r).unwrap()).unwrap();
@@ -323,6 +404,20 @@ mod tests {
         let res2 = encap(&pk_r).unwrap();
         assert_ne!(res.enc, res2.enc);
         assert_ne!(res.shared_secret, res2.shared_secret);
+
+        // seeded encapsulation is deterministic and interoperates with decap
+        let seeded = encap_with_seed(&pk_r, b"test seed").unwrap();
+        assert_eq!(
+            seeded.enc,
+            encap_with_seed(&pk_r, b"test seed").unwrap().enc
+        );
+        assert_ne!(seeded.enc, encap_with_seed(&pk_r, b"other").unwrap().enc);
+        assert_eq!(decap(&seeded.enc, &sk_r).unwrap(), seeded.shared_secret);
+        let seeded_auth = auth_encap_with_seed(&pk_r, &sk_s, b"test seed").unwrap();
+        assert_eq!(
+            auth_decap(&seeded_auth.enc, &sk_r, &pk_s).unwrap(),
+            seeded_auth.shared_secret
+        );
 
         // authenticated mode produces a different secret
         let res_auth = auth_encap(&pk_r, &sk_s).unwrap();
@@ -354,11 +449,11 @@ mod tests {
         assert!(decap(&res.enc, &pk_r).is_err());
     }
 
-    #[cfg(feature = "ec_curves")]
+    #[cfg(all(feature = "p256", feature = "p384"))]
     mod nist {
         use super::*;
         use crate::alg::{p256::P256KeyPair, p384::P384KeyPair};
-        use crate::repr::{KeyPublicBytes, ToPublicBytes};
+        use crate::repr::{KeyPublicBytes, ToPublicBytes, ToSecretBytes};
 
         #[test]
         // RFC 9180 appendix A.3.1
@@ -391,6 +486,17 @@ mod tests {
             assert_eq!(res.enc, enc);
             assert_eq!(res.shared_secret, &shared_secret[..]);
             assert_eq!(decap(&enc, &sk_r).unwrap(), &shared_secret[..]);
+
+            // DeriveKeyPair and the seeded encapsulation
+            let ikm_e = hex!("4270e54ffd08d79d5928020af4686d8f6b7d35dbe470265f1f5aa22816ce860e");
+            let derived = derive_key_pair::<P256KeyPair>(&ikm_e).unwrap();
+            assert_eq!(
+                serialize_public(&derived).unwrap(),
+                serialize_public(&sk_e).unwrap()
+            );
+            let res = encap_with_seed(&pk_r, &ikm_e).unwrap();
+            assert_eq!(res.enc, enc);
+            assert_eq!(res.shared_secret, &shared_secret[..]);
         }
 
         #[test]
@@ -419,6 +525,47 @@ mod tests {
                 base: &hex!("b6b88fb22b09cad8336efdcc8001420112d91d0030b414ed82d5d82b7aa36cab42f97f32c62866922c4b2cc3802f5d7d"),
                 auth: Some(&hex!("6723746f6ecf1d93a7cc6cdce0ab5460be27874dff95a831fddf53435ac9651ef1913172e722c121548a506de55cfed0")),
             });
+        }
+
+        #[test]
+        // Not in RFC 9180 (which has no P-384 KEM vectors): generated with an
+        // independent implementation of RFC 9180 section 4.1 and 7.1.3 in Python,
+        // which also reproduces the `p384_vector` above
+        fn p384_derive_key_pair_vector() {
+            let ikm_e: Vec<u8> = (0u8..48).collect();
+            let ikm_r: Vec<u8> = (48u8..96).collect();
+            let ikm_s: Vec<u8> = (96u8..144).collect();
+            let sk_r = derive_key_pair::<P384KeyPair>(&ikm_r).unwrap();
+            let sk_s = derive_key_pair::<P384KeyPair>(&ikm_s).unwrap();
+            let sk_e = derive_key_pair::<P384KeyPair>(&ikm_e).unwrap();
+            assert_eq!(
+                sk_e.to_secret_bytes().unwrap(),
+                &hex!("98c0889aab5610522699abe5970b7b7132022094127060b928018fb3c0e2aaae9da72e0c9cf8f909d91c1e1e58f7454a")[..]
+            );
+            assert_eq!(
+                sk_r.to_secret_bytes().unwrap(),
+                &hex!("f75cf38de0e4d9c0e7300f015a489277523039eecdbd9783f1225f1f8a595d9284763f708d2253617835c39438325080")[..]
+            );
+            let pk_r_bytes = serialize_public(&sk_r).unwrap();
+            assert_eq!(
+                pk_r_bytes,
+                hex!("04508ad7a0bf66da82742955a74ed6bdb89a0f523415cb37e17cc61085ada994f32727cf95ffc2e1a986446c0e476f884a4a366b3b0f4b45d83d4edc9901b452033957f97bc39bac9b1b216ff36571f63d59ba29aa68f3abc2b6aef8314e272a9c")
+            );
+            let pk_r = P384KeyPair::from_kem_public(&pk_r_bytes).unwrap();
+            let enc = hex!("04986dc0a7d2b37e3b222ea7d25a32fc290c88c50b6a0acfdecadb83a285f19a3ef0dbceeeecf54a9e7e02e4fb2c7bc075c24ba4c069bb3466ba3d35b29783bb51c74aa60ecfadacb1f4446327b36272176c58d687e5318e5537176f37cc846823");
+            let base = hex!("4c18a22faa15142b47a45971263c509de84ff3d874b523d6b5af5eb1db22605c5f7776abe6e5169c4449410a3acb3816");
+            let auth = hex!("96d193d92bcc3e3806cedc0b8bb02b10e6fd8613b2e2a17a970bd5491e6b1cb2e8b21be134efcad875c7847afc0e2647");
+
+            let res = encap_with_seed(&pk_r, &ikm_e).unwrap();
+            assert_eq!(res.enc, enc);
+            assert_eq!(res.shared_secret, &base[..]);
+            assert_eq!(decap(&enc, &sk_r).unwrap(), &base[..]);
+
+            let res = auth_encap_with_seed(&pk_r, &sk_s, &ikm_e).unwrap();
+            assert_eq!(res.enc, enc);
+            assert_eq!(res.shared_secret, &auth[..]);
+            let pk_s = P384KeyPair::from_kem_public(&serialize_public(&sk_s).unwrap()).unwrap();
+            assert_eq!(auth_decap(&enc, &sk_r, &pk_s).unwrap(), &auth[..]);
         }
 
         #[test]
@@ -463,6 +610,25 @@ mod tests {
                     "d58cd7e439d7268cc431967240ace390b4072085685ddbe6015f21071e1c6ce9"
                 )),
             });
+        }
+
+        #[test]
+        // RFC 9180 appendix A.1.1
+        fn x25519_derive_key_pair() {
+            let ikm_e = hex!("7268600d403fce431561aef583ee1613527cff655c1343f29812e66706df3234");
+            let sk_e = X25519KeyPair::from_secret_bytes(&hex!(
+                "52c4a758a802cd8b936eceea314432798d5baf2d7e9235dc084ab1b9cfa2f736"
+            ))
+            .unwrap();
+            let derived = derive_key_pair::<X25519KeyPair>(&ikm_e).unwrap();
+            assert_eq!(
+                serialize_public(&derived).unwrap(),
+                serialize_public(&sk_e).unwrap()
+            );
+            assert_eq!(
+                serialize_public(&derived).unwrap(),
+                hex!("37fda3567bdbd628e88668c3c8d7e97d1d1253b6d4ea6d44c150f741f1bf4431")
+            );
         }
 
         #[test]

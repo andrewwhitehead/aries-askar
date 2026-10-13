@@ -41,7 +41,7 @@ pub mod ed25519;
 #[cfg_attr(docsrs, doc(cfg(feature = "ed25519")))]
 pub mod x25519;
 
-#[cfg(feature = "ec_curves")]
+#[cfg(feature = "elliptic-curve")]
 mod ec_common;
 
 #[cfg(feature = "k256")]

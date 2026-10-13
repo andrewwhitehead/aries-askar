@@ -21,7 +21,7 @@ use subtle::ConstantTimeEq;
 
 use super::{ec_common, EcCurves, HasKeyAlg, HasKeyBackend, KeyAlg};
 #[cfg(feature = "dhkem")]
-use crate::kem::{DhKem, DhKemKey};
+use crate::kem::dhkem::{DhKem, DhKemKey};
 use crate::{
     array::typenum::{U48, U49, U97},
     buffer::{ArrayKey, WriteBuffer},
