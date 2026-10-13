@@ -376,21 +376,25 @@ ErrorCode askar_key_derive_ecdh_es(FfiStr alg,
                                    int8_t receive,
                                    LocalKeyHandle *out);
 
-ErrorCode askar_key_dhkem_auth_decap(LocalKeyHandle recip_key,
+ErrorCode askar_key_kem_auth_decap(LocalKeyHandle recip_key,
+                                     FfiStr kem,
                                      struct ByteBuffer enc,
                                      LocalKeyHandle sender_key,
                                      struct SecretBuffer *out);
 
-ErrorCode askar_key_dhkem_auth_encap(LocalKeyHandle recip_key,
+ErrorCode askar_key_kem_auth_encap(LocalKeyHandle recip_key,
+                                     FfiStr kem,
                                      LocalKeyHandle sender_key,
                                      struct SecretBuffer *out_enc,
                                      struct SecretBuffer *out_secret);
 
-ErrorCode askar_key_dhkem_decap(LocalKeyHandle handle,
+ErrorCode askar_key_kem_decap(LocalKeyHandle handle,
+                                FfiStr kem,
                                 struct ByteBuffer enc,
                                 struct SecretBuffer *out);
 
-ErrorCode askar_key_dhkem_encap(LocalKeyHandle handle,
+ErrorCode askar_key_kem_encap(LocalKeyHandle handle,
+                                FfiStr kem,
                                 struct SecretBuffer *out_enc,
                                 struct SecretBuffer *out_secret);
 

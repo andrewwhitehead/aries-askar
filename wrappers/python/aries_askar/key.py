@@ -131,27 +131,29 @@ class Key:
     ) -> "Key":
         return Key(bindings.key_unwrap_key(self._handle, alg, ciphertext, nonce, tag))
 
-    def dhkem_encap(self) -> Tuple[bytes, bytes]:
+    def kem_encap(self, kem: str) -> Tuple[bytes, bytes]:
         """Encapsulate a new shared secret for this (recipient) public key.
 
-        Performs the `Encap` operation of the Diffie-Hellman KEM defined in
-        RFC 9180, for P-256, P-384 and X25519 keys.
+        Args:
+            kem: The KEM algorithm to apply, which must match the key type:
+                `DHKEM-P256-HKDF-SHA256`, `DHKEM-P384-HKDF-SHA384` or
+                `DHKEM-X25519-HKDF-SHA256` (RFC 9180).
 
         Returns:
             A tuple of the encapsulated key (to send to the recipient) and the
             KEM shared secret
         """
-        enc, secret = bindings.key_dhkem_encap(self._handle)
+        enc, secret = bindings.key_kem_encap(self._handle, kem)
         return bytes(enc), bytes(secret)
 
-    def dhkem_decap(self, enc: bytes) -> bytes:
+    def kem_decap(self, kem: str, enc: bytes) -> bytes:
         """Recover the KEM shared secret from an encapsulated key.
 
         Performs the `Decap` operation using this (recipient) secret key.
         """
-        return bytes(bindings.key_dhkem_decap(self._handle, enc))
+        return bytes(bindings.key_kem_decap(self._handle, kem, enc))
 
-    def dhkem_auth_encap(self, sender_key: "Key") -> Tuple[bytes, bytes]:
+    def kem_auth_encap(self, kem: str, sender_key: "Key") -> Tuple[bytes, bytes]:
         """Encapsulate a new shared secret for this (recipient) public key.
 
         Performs the `AuthEncap` operation, authenticated by the sender secret key.
@@ -159,17 +161,17 @@ class Key:
         Returns:
             A tuple of the encapsulated key and the KEM shared secret
         """
-        enc, secret = bindings.key_dhkem_auth_encap(self._handle, sender_key._handle)
+        enc, secret = bindings.key_kem_auth_encap(self._handle, kem, sender_key._handle)
         return bytes(enc), bytes(secret)
 
-    def dhkem_auth_decap(self, enc: bytes, sender_key: "Key") -> bytes:
+    def kem_auth_decap(self, kem: str, enc: bytes, sender_key: "Key") -> bytes:
         """Recover the KEM shared secret from an encapsulated key.
 
         Performs the `AuthDecap` operation using this (recipient) secret key and
         the sender public key.
         """
         return bytes(
-            bindings.key_dhkem_auth_decap(self._handle, enc, sender_key._handle)
+            bindings.key_kem_auth_decap(self._handle, kem, enc, sender_key._handle)
         )
 
     def __repr__(self) -> str:

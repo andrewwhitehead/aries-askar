@@ -1088,49 +1088,55 @@ def key_crypto_box_seal_open(
     return buf
 
 
-def key_dhkem_encap(handle: LocalKeyHandle) -> Tuple[ByteBuffer, ByteBuffer]:
+def key_kem_encap(handle: LocalKeyHandle, kem: str) -> Tuple[ByteBuffer, ByteBuffer]:
     enc = ByteBuffer()
     secret = ByteBuffer()
     invoke(
-        "askar_key_dhkem_encap",
-        (LocalKeyHandle, POINTER(ByteBuffer), POINTER(ByteBuffer)),
+        "askar_key_kem_encap",
+        (LocalKeyHandle, FfiStr, POINTER(ByteBuffer), POINTER(ByteBuffer)),
         handle,
+        kem,
         byref(enc),
         byref(secret),
     )
     return enc, secret
 
 
-def key_dhkem_decap(
+def key_kem_decap(
     handle: LocalKeyHandle,
+    kem: str,
     enc: Union[bytes, ByteBuffer],
 ) -> ByteBuffer:
     secret = ByteBuffer()
     invoke(
-        "askar_key_dhkem_decap",
-        (LocalKeyHandle, FfiByteBuffer, POINTER(ByteBuffer)),
+        "askar_key_kem_decap",
+        (LocalKeyHandle, FfiStr, FfiByteBuffer, POINTER(ByteBuffer)),
         handle,
+        kem,
         enc,
         byref(secret),
     )
     return secret
 
 
-def key_dhkem_auth_encap(
+def key_kem_auth_encap(
     recip_key: LocalKeyHandle,
+    kem: str,
     sender_key: LocalKeyHandle,
 ) -> Tuple[ByteBuffer, ByteBuffer]:
     enc = ByteBuffer()
     secret = ByteBuffer()
     invoke(
-        "askar_key_dhkem_auth_encap",
+        "askar_key_kem_auth_encap",
         (
             LocalKeyHandle,
+            FfiStr,
             LocalKeyHandle,
             POINTER(ByteBuffer),
             POINTER(ByteBuffer),
         ),
         recip_key,
+        kem,
         sender_key,
         byref(enc),
         byref(secret),
@@ -1138,16 +1144,18 @@ def key_dhkem_auth_encap(
     return enc, secret
 
 
-def key_dhkem_auth_decap(
+def key_kem_auth_decap(
     recip_key: LocalKeyHandle,
+    kem: str,
     enc: Union[bytes, ByteBuffer],
     sender_key: LocalKeyHandle,
 ) -> ByteBuffer:
     secret = ByteBuffer()
     invoke(
-        "askar_key_dhkem_auth_decap",
-        (LocalKeyHandle, FfiByteBuffer, LocalKeyHandle, POINTER(ByteBuffer)),
+        "askar_key_kem_auth_decap",
+        (LocalKeyHandle, FfiStr, FfiByteBuffer, LocalKeyHandle, POINTER(ByteBuffer)),
         recip_key,
+        kem,
         enc,
         sender_key,
         byref(secret),

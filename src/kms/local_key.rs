@@ -14,6 +14,7 @@ use crate::{
         encrypt::KeyAeadInPlace,
         jwk::{FromJwk, ToJwk},
         kdf::{KeyDerivation, KeyExchange},
+        kem::Kem,
         random::{fill_random, RandomDet},
         repr::{ToPublicBytes, ToSecretBytes},
         sign::{KeySigVerify, KeySign, SignatureType},
@@ -273,32 +274,44 @@ impl LocalKey {
 }
 
 impl LocalKey {
-    /// Encapsulate a new shared secret for this (recipient) public key using a
-    /// Diffie-Hellman based KEM (`Encap` from RFC 9180 section 4.1). Supported key
-    /// algorithms are P-256, P-384 and X25519. Returns the encapsulated key to send
-    /// to the recipient and the shared secret.
-    pub fn dhkem_encap(&self) -> Result<(Vec<u8>, SecretBytes), Error> {
-        let res = self.inner.dhkem_encap()?;
+    /// Encapsulate a new shared secret for this (recipient) public key using the
+    /// named key encapsulation mechanism (for example `DHKEM-X25519-HKDF-SHA256`).
+    /// Returns the encapsulated key to send to the recipient and the shared secret.
+    pub fn kem_encap(&self, kem: &str) -> Result<(Vec<u8>, SecretBytes), Error> {
+        let res = self.inner.kem_encap(Kem::from_str(kem)?)?;
         Ok((res.enc, res.shared_secret))
     }
 
     /// Recover the shared secret from an encapsulated key using this (recipient)
-    /// secret key (`Decap` from RFC 9180 section 4.1)
-    pub fn dhkem_decap(&self, enc: &[u8]) -> Result<SecretBytes, Error> {
-        Ok(self.inner.dhkem_decap(enc)?)
+    /// secret key and the named key encapsulation mechanism
+    pub fn kem_decap(&self, kem: &str, enc: &[u8]) -> Result<SecretBytes, Error> {
+        Ok(self.inner.kem_decap(Kem::from_str(kem)?, enc)?)
     }
 
     /// Encapsulate a new shared secret for this (recipient) public key,
-    /// authenticated by the sender secret key (`AuthEncap` from RFC 9180 section 4.1)
-    pub fn dhkem_auth_encap(&self, sender_sk: &LocalKey) -> Result<(Vec<u8>, SecretBytes), Error> {
-        let res = self.inner.dhkem_auth_encap(&sender_sk.inner)?;
+    /// authenticated by the sender secret key, using the named KEM
+    pub fn kem_auth_encap(
+        &self,
+        kem: &str,
+        sender_sk: &LocalKey,
+    ) -> Result<(Vec<u8>, SecretBytes), Error> {
+        let res = self
+            .inner
+            .kem_auth_encap(Kem::from_str(kem)?, &sender_sk.inner)?;
         Ok((res.enc, res.shared_secret))
     }
 
     /// Recover the shared secret from an encapsulated key using this (recipient)
-    /// secret key and the sender public key (`AuthDecap` from RFC 9180 section 4.1)
-    pub fn dhkem_auth_decap(&self, enc: &[u8], sender_pk: &LocalKey) -> Result<SecretBytes, Error> {
-        Ok(self.inner.dhkem_auth_decap(enc, &sender_pk.inner)?)
+    /// secret key and the sender public key, using the named KEM
+    pub fn kem_auth_decap(
+        &self,
+        kem: &str,
+        enc: &[u8],
+        sender_pk: &LocalKey,
+    ) -> Result<SecretBytes, Error> {
+        Ok(self
+            .inner
+            .kem_auth_decap(Kem::from_str(kem)?, enc, &sender_pk.inner)?)
     }
 }
 

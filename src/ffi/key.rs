@@ -578,17 +578,18 @@ pub extern "C" fn askar_key_derive_ecdh_1pu(
 }
 
 #[no_mangle]
-pub extern "C" fn askar_key_dhkem_encap(
+pub extern "C" fn askar_key_kem_encap(
     handle: LocalKeyHandle,
+    kem: FfiStr<'_>,
     out_enc: *mut SecretBuffer,
     out_secret: *mut SecretBuffer,
 ) -> ErrorCode {
     catch_err! {
-        trace!("DHKEM encap: {}", handle);
+        trace!("KEM encap: {}", handle);
         check_useful_c_ptr!(out_enc);
         check_useful_c_ptr!(out_secret);
         let key = handle.load()?;
-        let (enc, secret) = key.dhkem_encap()?;
+        let (enc, secret) = key.kem_encap(kem.as_opt_str().ok_or_else(|| err_msg!(Input, "Missing KEM algorithm"))?)?;
         unsafe {
             *out_enc = SecretBuffer::from_secret(enc);
             *out_secret = SecretBuffer::from_secret(secret);
@@ -598,35 +599,37 @@ pub extern "C" fn askar_key_dhkem_encap(
 }
 
 #[no_mangle]
-pub extern "C" fn askar_key_dhkem_decap(
+pub extern "C" fn askar_key_kem_decap(
     handle: LocalKeyHandle,
+    kem: FfiStr<'_>,
     enc: ByteBuffer,
     out: *mut SecretBuffer,
 ) -> ErrorCode {
     catch_err! {
-        trace!("DHKEM decap: {}", handle);
+        trace!("KEM decap: {}", handle);
         check_useful_c_ptr!(out);
         let key = handle.load()?;
-        let secret = key.dhkem_decap(enc.as_slice())?;
+        let secret = key.kem_decap(kem.as_opt_str().ok_or_else(|| err_msg!(Input, "Missing KEM algorithm"))?, enc.as_slice())?;
         unsafe { *out = SecretBuffer::from_secret(secret) };
         Ok(ErrorCode::Success)
     }
 }
 
 #[no_mangle]
-pub extern "C" fn askar_key_dhkem_auth_encap(
+pub extern "C" fn askar_key_kem_auth_encap(
     recip_key: LocalKeyHandle,
+    kem: FfiStr<'_>,
     sender_key: LocalKeyHandle,
     out_enc: *mut SecretBuffer,
     out_secret: *mut SecretBuffer,
 ) -> ErrorCode {
     catch_err! {
-        trace!("DHKEM auth encap: {}, {}", recip_key, sender_key);
+        trace!("KEM auth encap: {}, {}", recip_key, sender_key);
         check_useful_c_ptr!(out_enc);
         check_useful_c_ptr!(out_secret);
         let recip_key = recip_key.load()?;
         let sender_key = sender_key.load()?;
-        let (enc, secret) = recip_key.dhkem_auth_encap(&sender_key)?;
+        let (enc, secret) = recip_key.kem_auth_encap(kem.as_opt_str().ok_or_else(|| err_msg!(Input, "Missing KEM algorithm"))?, &sender_key)?;
         unsafe {
             *out_enc = SecretBuffer::from_secret(enc);
             *out_secret = SecretBuffer::from_secret(secret);
@@ -636,18 +639,19 @@ pub extern "C" fn askar_key_dhkem_auth_encap(
 }
 
 #[no_mangle]
-pub extern "C" fn askar_key_dhkem_auth_decap(
+pub extern "C" fn askar_key_kem_auth_decap(
     recip_key: LocalKeyHandle,
+    kem: FfiStr<'_>,
     enc: ByteBuffer,
     sender_key: LocalKeyHandle,
     out: *mut SecretBuffer,
 ) -> ErrorCode {
     catch_err! {
-        trace!("DHKEM auth decap: {}, {}", recip_key, sender_key);
+        trace!("KEM auth decap: {}, {}", recip_key, sender_key);
         check_useful_c_ptr!(out);
         let recip_key = recip_key.load()?;
         let sender_key = sender_key.load()?;
-        let secret = recip_key.dhkem_auth_decap(enc.as_slice(), &sender_key)?;
+        let secret = recip_key.kem_auth_decap(kem.as_opt_str().ok_or_else(|| err_msg!(Input, "Missing KEM algorithm"))?, enc.as_slice(), &sender_key)?;
         unsafe { *out = SecretBuffer::from_secret(secret) };
         Ok(ErrorCode::Success)
     }

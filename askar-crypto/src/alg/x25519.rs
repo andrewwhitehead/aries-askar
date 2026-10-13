@@ -11,7 +11,7 @@ use zeroize::Zeroizing;
 
 use super::{ed25519::Ed25519KeyPair, HasKeyAlg, HasKeyBackend, KeyAlg};
 #[cfg(feature = "dhkem")]
-use crate::kem::{DhKem, DhKemKey};
+use crate::kem::dhkem::{DhKem, DhKemKey};
 use crate::{
     array::typenum::{U32, U64},
     buffer::{ArrayKey, WriteBuffer},
