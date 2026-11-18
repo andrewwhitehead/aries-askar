@@ -28,7 +28,7 @@ path = "src/lib.rs"
 
 [features]
 all_backends = ["postgres", "sqlite"]
-default = ["all_backends", "ffi", "logger", "migration"]
+default = ["all_backends", "ffi", "logger", "migration", "mldsa"]
 ffi = ["dep:ffi-support", "logger"]
 jemalloc = ["dep:jemallocator"]
 logger = ["dep:env_logger", "dep:log", "askar-storage/log"]

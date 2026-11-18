@@ -105,8 +105,8 @@ def test_mldsa(key_alg: KeyAlg, jwk_alg: str, public_size: int, signature_size: 
     imported_secret_jwk = Key.from_jwk(secret_jwk)
     assert imported_secret_jwk.get_secret_bytes() == secret
     assert imported_secret_jwk.get_public_bytes() == public
-    
-    
+
+
 def test_ed25519():
     key = Key.generate(KeyAlg.ED25519)
     assert key.algorithm == KeyAlg.ED25519
